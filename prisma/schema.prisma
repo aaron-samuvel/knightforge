@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  rating    Int      @default(800)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  draws     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Game {
+  id               String   @id @default(cuid())
+  whiteName        String
+  blackName        String
+  whiteRating      Int      @default(800)
+  blackRating      Int      @default(800)
+  whiteRatingDelta Int      @default(0)
+  blackRatingDelta Int      @default(0)
+  result           String // "white" | "black" | "draw"
+  reason           String // "checkmate" | "resignation" | "timeout" | "stalemate" | "insufficient" | "abandoned"
+  pgn              String
+  moveCount        Int      @default(0)
+  timeControl      String // e.g. "5+0"
+  initialSeconds   Int      @default(300)
+  incrementSeconds Int      @default(0)
+  durationSec      Int      @default(0)
+  createdAt        DateTime @default(now())
+}
