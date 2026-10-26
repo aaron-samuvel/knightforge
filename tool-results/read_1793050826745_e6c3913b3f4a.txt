@@ -1,0 +1,1705 @@
+     1→import { useEffect, useMemo, useRef, useState } from "react";
+     2→import { Chessboard } from "react-chessboard";
+     3→import { Chess } from "chess.js";
+     4→import "./App.css";
+     5→
+     6→const START_FEN = new Chess().fen();
+     7→const STOCKFISH_PATH = "/stockfish/stockfish-nnue-16-single.js";
+     8→
+     9→const PIECE_VALUES = {
+    10→  p: 100,
+    11→  n: 300,
+    12→  b: 300,
+    13→  r: 500,
+    14→  q: 900,
+    15→  k: 0,
+    16→};
+    17→
+    18→const QUALITY_STYLES = {
+    19→  Brilliant: { type: "brilliant", color: "#2fc69d" },
+    20→  Great: { type: "great", color: "#6f91b3" },
+    21→  Book: { type: "book", color: "#c99d7b" },
+    22→  Forced: { type: "forced", color: "#8fac83" },
+    23→  Best: { type: "best", color: "#7bbd40" },
+    24→  Excellent: { type: "excellent", color: "#7dbd42" },
+    25→  Good: { type: "good", color: "#708b57" },
+    26→  Inaccuracy: { type: "inaccuracy", color: "#f3c22e" },
+    27→  Mistake: { type: "mistake", color: "#f5904c" },
+    28→  Miss: { type: "miss", color: "#ef5e64" },
+    29→  Blunder: { type: "blunder", color: "#f12229" },
+    30→};
+    31→
+    32→const getQualityStyle = (quality) => QUALITY_STYLES[quality] || null;
+    33→const CAPTURED_PIECE_ICONS = { p: "♟", n: "♞", b: "♝", r: "♜", q: "♛" };
+    34→
+    35→const ACCURACY_LABEL = "Top-3 eval-safe match";
+    36→const WIN_PERCENT_SLOPE = 0.00368208;
+    37→let openingBookPositionsPromise;
+    38→const isOpeningBookPosition = async (fen) => {
+    39→  openingBookPositionsPromise ||= fetch(`${import.meta.env.BASE_URL}opening-positions.json`)
+    40→    .then((response) => {
+    41→      if (!response.ok) throw new Error("Opening book data could not be loaded");
+    42→      return response.json();
+    43→    })
+    44→    .then((positions) => new Set(positions))
+    45→    .catch((error) => {
+    46→      console.warn("Opening book labels are unavailable:", error);
+    47→      return new Set();
+    48→    });
+    49→  const positions = await openingBookPositionsPromise;
+    50→  return positions.has(String(fen).split(" ").slice(0, 4).join(" "));
+    51→};
+    52→
+    53→function EvaluationGraph({ points, currentMove, onSelectMove }) {
+    54→  if (!points?.length) {
+    55→    return <div className="graph-empty">Run a full review to see the game’s evaluation trend.</div>;
+    56→  }
+    57→  const width = 600;
+    58→  const height = 220;
+    59→  const pad = 28;
+    60→  const rawValues = points.map((point) => Number.isFinite(point) ? point / 100 : 0);
+    61→  const maxAbsValue = Math.max(0, ...rawValues.map((value) => Math.abs(value)));
+    62→  const range = Math.min(12, Math.max(1, Math.ceil(maxAbsValue * 1.12)));
+    63→  const values = rawValues.map((value) => Math.max(-range, Math.min(range, value)));
+    64→  const x = (index) => pad + (points.length < 2 ? 0 : (index / (points.length - 1)) * (width - pad * 2));
+    65→  const y = (value) => pad + ((range - value) / (range * 2)) * (height - pad * 2);
+    66→  const curvePoints = values.map((value, index) => ({ x: x(index), y: y(value) }));
+    67→  const curveSegments = curvePoints.slice(0, -1).map((point, index) => {
+    68→    const previous = curvePoints[Math.max(0, index - 1)];
+    69→    const next = curvePoints[index + 1];
+    70→    const afterNext = curvePoints[Math.min(curvePoints.length - 1, index + 2)];
+    71→    const control1 = { x: point.x + (next.x - previous.x) / 6, y: point.y + (next.y - previous.y) / 6 };
+    72→    const control2 = { x: next.x - (afterNext.x - point.x) / 6, y: next.y - (afterNext.y - point.y) / 6 };
+    73→    return `C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${next.x} ${next.y}`;
+    74→  }).join(" ");
+    75→  const line = `M ${curvePoints[0].x} ${curvePoints[0].y} ${curveSegments}`;
+    76→  const areaAbove = `M ${curvePoints[0].x} ${pad} L ${curvePoints[0].x} ${curvePoints[0].y} ${curveSegments} L ${curvePoints[curvePoints.length - 1].x} ${pad} Z`;
+    77→  const areaBelow = `M ${curvePoints[0].x} ${height - pad} L ${curvePoints[0].x} ${curvePoints[0].y} ${curveSegments} L ${curvePoints[curvePoints.length - 1].x} ${height - pad} Z`;
+    78→  const zeroY = y(0);
+    79→  return (
+    80→    <div className="eval-graph-wrap">
+    81→      <div className="graph-legend"><span><i className="white-dot" /> White advantage</span><span><i className="black-dot" /> Black advantage</span></div>
+    82→      <svg className="eval-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Evaluation through the game">
+    83→        <rect className="graph-plot-surface" x={pad} y={pad} width={width - pad * 2} height={height - pad * 2} rx="8" />
+    84→        <defs><clipPath id="evaluation-plot-clip"><rect x={pad} y={pad} width={width - pad * 2} height={height - pad * 2} rx="8" /></clipPath></defs>
+    85→        <g clipPath="url(#evaluation-plot-clip)">
+    86→          <path d={areaAbove} className="graph-white-area" />
+    87→          <path d={areaBelow} className="graph-black-area" />
+    88→          <line x1={pad} y1={zeroY} x2={width - pad} y2={zeroY} className="graph-zero" />
+    89→          <path d={line} className="graph-line" />
+    90→          {values.map((value, index) => (
+    91→            <circle key={index} cx={x(index)} cy={y(value)} r={index === currentMove ? 5 : 2.4}
+    92→              className={index === currentMove ? "graph-point current" : "graph-point"}
+    93→              role="button" tabIndex={0} aria-label={index === 0 ? "Start position" : `Move ${index}`}
+    94→              onClick={() => onSelectMove(index)} onKeyDown={(event) => event.key === "Enter" && onSelectMove(index)}>
+    95→              <title>{index === 0 ? "Start position" : `After move ${index}`} · {value >= 0 ? `White +${value.toFixed(2)}` : `Black +${Math.abs(value).toFixed(2)}`} pawns</title>
+    96→            </circle>
+    97→          ))}
+    98→        </g>
+    99→        <text x={pad - 5} y={pad - 9} textAnchor="start" className="graph-y-label">+{range.toFixed(1)}</text>
+   100→        <text x={pad - 5} y={height - pad + 15} textAnchor="start" className="graph-y-label">−{range.toFixed(1)}</text>
+   101→      </svg>
+   102→      <div className="graph-axis"><span>Start</span><span>Move {points.length - 1}</span></div>
+   103→    </div>
+   104→  );
+   105→}
+   106→
+   107→function AccuracyCard({ side, accuracy }) {
+   108→  const percentage = accuracy?.percentage ?? null;
+   109→  const colorClass = side === "White" ? "white-accuracy" : "black-accuracy";
+   110→  return (
+   111→    <div className={`accuracy-card ${colorClass}`}>
+   112→      <span>{side} · {ACCURACY_LABEL}</span>
+   113→      <div className="accuracy-ring" role="progressbar" aria-label={`${side} top-three eval-safe match rate`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={percentage ?? 0} style={{ "--ring-value": `${percentage ?? 0}%` }}>
+   114→        <strong>{percentage ?? "—"}{percentage !== null && <small>%</small>}</strong>
+   115→      </div>
+   116→      <small className="accuracy-detail">{accuracy ? `${accuracy.topThreeMatches} of ${accuracy.total} moves matched top 3 without lowering eval` : "No moves to score"}</small>
+   117→    </div>
+   118→  );
+   119→}
+   120→
+   121→function GameRatingCard({ side, estimate }) {
+   122→  const adjustment = estimate?.adjustment ?? 0;
+   123→  const adjustmentLabel = adjustment >= 0 ? `+${adjustment}` : `${adjustment}`;
+   124→  return (
+   125→    <div className={`game-rating-card ${side.toLowerCase()}`}>
+   126→      <span className="game-rating-side">{side}</span>
+   127→      <strong>{estimate ? estimate.rating.toLocaleString() : "—"}</strong>
+   128→      <span className="game-rating-baseline">
+   129→        {estimate ? `${estimate.baseline.toLocaleString()} Elo · ${adjustmentLabel}` : "Game Elo unavailable"}
+   130→      </span>
+   131→      {estimate && <span className="game-rating-loss">Avg. expected-point loss {(estimate.averageExpectedPointsLoss * 100).toFixed(1)}%</span>}
+   132→    </div>
+   133→  );
+   134→}
+   135→
+   136→function PlayerRail({ color, position, player, edgeLabel }) {
+   137→  const isWhite = color === "w";
+   138→  const sideName = isWhite ? "White" : "Black";
+   139→  return (
+   140→    <div className={`player-rail player-rail-${position}`}>
+   141→      <span className="player-avatar" aria-hidden="true">{isWhite ? "♔" : "♚"}</span>
+   142→      <span className="player-identity">
+   143→        <b>{player.name}</b>
+   144→        <span className="player-meta"><small>PLAYER</small><em className="elo-chip">{player.elo || "—"}</em>{player.title && <em className="player-title-chip">{player.title}</em>}</span>
+   145→        <em className="captured-material" aria-label={`${sideName} captured ${player.captured.length} pieces`}>{player.captured.map((piece, index) => <i key={`${piece}-${index}`}>{CAPTURED_PIECE_ICONS[piece]}</i>)}</em>
+   146→      </span>
+   147→      <i className="player-edge-label">{edgeLabel}</i>
+   148→    </div>
+   149→  );
+   150→}
+   151→
+   152→const QualityIcon = ({ quality, size = 34 }) => {
+   153→  const qualityStyle = getQualityStyle(quality);
+   154→  if (!qualityStyle) return null;
+   155→
+   156→  const renderIcon = () => {
+   157→    switch (qualityStyle.type) {
+   158→      case "brilliant":
+   159→        return (
+   160→          <>
+   161→            <rect x="20" y="14" width="6" height="20" rx="1.5" fill="white" />
+   162→            <circle cx="23" cy="42" r="3.2" fill="white" />
+   163→            <rect x="32" y="14" width="6" height="20" rx="1.5" fill="white" />
+   164→            <circle cx="35" cy="42" r="3.2" fill="white" />
+   165→          </>
+   166→        );
+   167→
+   168→      case "great":
+   169→        return (
+   170→          <>
+   171→            <rect x="26" y="14" width="6" height="20" rx="1.5" fill="white" />
+   172→            <circle cx="29" cy="42" r="3.4" fill="white" />
+   173→          </>
+   174→        );
+   175→
+   176→      case "forced":
+   177→        return <path d="M8 24 H31 V14 L50 29 L31 44 V34 H8 Z" fill="white" />;
+   178→
+   179→      case "book":
+   180→        return (
+   181→          <>
+   182→            <path
+   183→              d="M10 16 C18 13 24 14 29 18 V44 C24 40 18 39 10 42 Z"
+   184→              fill="white"
+   185→            />
+   186→            <path
+   187→              d="M48 16 C40 13 34 14 29 18 V44 C34 40 40 39 48 42 Z"
+   188→              fill="white"
+   189→            />
+   190→            <path d="M29 18 V44" stroke={qualityStyle.color} strokeWidth="1.5" />
+   191→          </>
+   192→        );
+   193→
+   194→      case "best":
+   195→        return (
+   196→          <path
+   197→            d="M29 11 L34.6 22.4 L47 24.2 L38 33 L40.2 45.4 L29 39.6 L17.8 45.4 L20 33 L11 24.2 L23.4 22.4 Z"
+   198→            fill="white"
+   199→          />
+   200→        );
+   201→
+   202→      case "excellent":
+   203→        return (
+   204→          <path
+   205→            d="M14 28 H22 V47 H17 C15.3 47 14 45.7 14 44 Z
+   206→               M24 28 L31 13 C32 11 35.5 11 36.5 13.5 C37 15 36.6 17 36 19 L34.5 25 H45
+   207→               C47.2 25 48.8 27 48.4 29.2 L45.6 43 C45.1 45.4 43 47 40.6 47 H24 Z"
+   208→            fill="white"
+   209→          />
+   210→        );
+   211→
+   212→      case "good":
+   213→        return (
+   214→          <path
+   215→            d="M13 30 L24 41 L46 18"
+   216→            fill="none"
+   217→            stroke="white"
+   218→            strokeWidth="6.5"
+   219→            strokeLinecap="round"
+   220→            strokeLinejoin="round"
+   221→          />
+   222→        );
+   223→
+   224→      case "inaccuracy":
+   225→        return (
+   226→          <>
+   227→            <path
+   228→              d="M16 22 C17 14 30 13 31 21 C31.6 26 25 27 24.5 33"
+   229→              fill="none"
+   230→              stroke="white"
+   231→              strokeWidth="4"
+   232→              strokeLinecap="round"
+   233→            />
+   234→            <circle cx="24.5" cy="41" r="3.2" fill="white" />
+   235→            <rect x="35" y="14" width="5.5" height="20" rx="1.4" fill="white" />
+   236→            <circle cx="37.8" cy="41" r="3.2" fill="white" />
+   237→          </>
+   238→        );
+   239→
+   240→      case "mistake":
+   241→        return (
+   242→          <>
+   243→            <path
+   244→              d="M18 21 C19.5 12 38 12 39 22 C39.8 29 30 30 29.5 37"
+   245→              fill="none"
+   246→              stroke="white"
+   247→              strokeWidth="5.5"
+   248→              strokeLinecap="round"
+   249→            />
+   250→            <circle cx="29.5" cy="45" r="3.8" fill="white" />
+   251→          </>
+   252→        );
+   253→
+   254→      case "miss":
+   255→        return (
+   256→          <>
+   257→            <path d="M17 17 L41 41" stroke="white" strokeWidth="7" strokeLinecap="round" />
+   258→            <path d="M41 17 L17 41" stroke="white" strokeWidth="7" strokeLinecap="round" />
+   259→          </>
+   260→        );
+   261→
+   262→      case "blunder":
+   263→        return (
+   264→          <>
+   265→            <path
+   266→              d="M10 21 C11.5 12 26 12 27 22 C27.8 28 20 29 19.5 34"
+   267→              fill="none"
+   268→              stroke="white"
+   269→              strokeWidth="4"
+   270→              strokeLinecap="round"
+   271→            />
+   272→            <circle cx="19.5" cy="41" r="3" fill="white" />
+   273→            <path
+   274→              d="M32 21 C33.5 12 48 12 49 22 C49.8 28 42 29 41.5 34"
+   275→              fill="none"
+   276→              stroke="white"
+   277→              strokeWidth="4"
+   278→              strokeLinecap="round"
+   279→            />
+   280→            <circle cx="41.5" cy="41" r="3" fill="white" />
+   281→          </>
+   282→        );
+   283→
+   284→      default:
+   285→        return null;
+   286→    }
+   287→  };
+   288→
+   289→  return (
+   290→    <span
+   291→      title={quality}
+   292→      style={{
+   293→        width: `${size}px`,
+   294→        height: `${size}px`,
+   295→        borderRadius: "50%",
+   296→        backgroundColor: qualityStyle.color,
+   297→        display: "inline-flex",
+   298→        alignItems: "center",
+   299→        justifyContent: "center",
+   300→        boxShadow:
+   301→          "inset 0 -2px 3px rgba(0,0,0,0.25), inset 0 2px 3px rgba(255,255,255,0.18), 0 2px 5px rgba(0,0,0,0.35)",
+   302→        boxSizing: "border-box",
+   303→        overflow: "hidden",
+   304→      }}
+   305→    >
+   306→      <svg
+   307→        width={size * 0.78}
+   308→        height={size * 0.78}
+   309→        viewBox="0 0 58 58"
+   310→        aria-hidden="true"
+   311→      >
+   312→        {renderIcon()}
+   313→      </svg>
+   314→    </span>
+   315→  );
+   316→};
+   317→
+   318→function App() {
+   319→  const [username, setUsername] = useState("GukeshDommaraju");
+   320→  const [games, setGames] = useState([]);
+   321→  const [gamesOpen, setGamesOpen] = useState(false);
+   322→  const [gamesLoading, setGamesLoading] = useState(false);
+   323→  const [searchError, setSearchError] = useState("");
+   324→  const [fenHistory, setFenHistory] = useState([START_FEN]);
+   325→  const [moveHistory, setMoveHistory] = useState([]);
+   326→  const [uciMoveHistory, setUciMoveHistory] = useState([]);
+   327→  const [currentMove, setCurrentMove] = useState(0);
+   328→  const [boardOrientation, setBoardOrientation] = useState("white");
+   329→
+   330→  const [engineReady, setEngineReady] = useState(false);
+   331→  const [engineStatus, setEngineStatus] = useState("Loading Stockfish...");
+   332→  const [evaluation, setEvaluation] = useState(null);
+   333→  const [bestMove, setBestMove] = useState(null);
+   334→  const [bestLine, setBestLine] = useState([]);
+   335→  const [engineDepth, setEngineDepth] = useState(null);
+   336→  const [analysisDepth, setAnalysisDepth] = useState(12);
+   337→
+   338→  const [moveQuality, setMoveQuality] = useState(null);
+   339→  const [evalLoss, setEvalLoss] = useState(null);
+   340→  const [expectedPointLoss, setExpectedPointLoss] = useState(null);
+   341→  const [moveReviews, setMoveReviews] = useState({});
+   342→  const [fullReview, setFullReview] = useState(null);
+   343→  const [reviewState, setReviewState] = useState({ status: "idle", completed: 0, total: 0 });
+   344→  const [gameInfo, setGameInfo] = useState(null);
+   345→  const [capturedPieces, setCapturedPieces] = useState({ w: [], b: [] });
+   346→  const [retryMoveIndex, setRetryMoveIndex] = useState(null);
+   347→  const [retryFeedback, setRetryFeedback] = useState("");
+   348→  const [isPlaying, setIsPlaying] = useState(false);
+   349→  const [previewMove, setPreviewMove] = useState(null);
+   350→  const [engineMovePreview, setEngineMovePreview] = useState(null);
+   351→  const selectedMoveRef = useRef(null);
+   352→  const reviewRunRef = useRef(0);
+   353→  const searchRef = useRef(null);
+   354→
+   355→  const stockfishRef = useRef(null);
+   356→  const fenRef = useRef(START_FEN);
+   357→
+   358→  const fen = fenHistory[currentMove] || START_FEN;
+   359→  const isEngineMovePreview = engineMovePreview?.baseFen === fen;
+   360→  const boardFen = isEngineMovePreview ? engineMovePreview.fen : fenHistory[previewMove ?? currentMove] || fen;
+   361→  const topPlayerColor = boardOrientation === "white" ? "b" : "w";
+   362→  const bottomPlayerColor = topPlayerColor === "w" ? "b" : "w";
+   363→  const getPlayerDetails = (color) => color === "w"
+   364→    ? { name: gameInfo?.white || "White", elo: gameInfo?.whiteElo, title: gameInfo?.whiteTitle, captured: capturedPieces.w || [] }
+   365→    : { name: gameInfo?.black || "Black", elo: gameInfo?.blackElo, title: gameInfo?.blackTitle, captured: capturedPieces.b || [] };
+   366→  const getPlayerEdgeLabel = (color) => {
+   367→    if (!evaluation) return color === "w" ? "WHITE" : "BLACK";
+   368→    if (evaluation.type === "mate") {
+   369→      const matingSide = evaluation.value >= 0 ? "w" : "b";
+   370→      return matingSide === color ? `MATE IN ${Math.abs(evaluation.value)}` : color === "w" ? "WHITE" : "BLACK";
+   371→    }
+   372→    const leadingSide = evaluation.value > 0 ? "w" : evaluation.value < 0 ? "b" : null;
+   373→    if (leadingSide !== color) return color === "w" ? "WHITE" : "BLACK";
+   374→    return `LEADS +${Math.abs(evaluation.value / 100).toFixed(2)}`;
+   375→  };
+   376→
+   377→  useEffect(() => {
+   378→    const closeSearch = (event) => {
+   379→      if (event.key === "Escape") {
+   380→        setGamesOpen(false);
+   381→        return;
+   382→      }
+   383→      if (event.type === "pointerdown" && !searchRef.current?.contains(event.target)) {
+   384→        setGamesOpen(false);
+   385→      }
+   386→    };
+   387→
+   388→    document.addEventListener("pointerdown", closeSearch);
+   389→    document.addEventListener("keydown", closeSearch);
+   390→    return () => {
+   391→      document.removeEventListener("pointerdown", closeSearch);
+   392→      document.removeEventListener("keydown", closeSearch);
+   393→    };
+   394→  }, []);
+   395→
+   396→  useEffect(() => {
+   397→    fenRef.current = fen;
+   398→  }, [fen]);
+   399→
+   400→  const resetAnalysis = () => {
+   401→    setEngineMovePreview(null);
+   402→    setEvaluation(null);
+   403→    setBestMove(null);
+   404→    setBestLine([]);
+   405→    setEngineDepth(null);
+   406→    setMoveQuality(null);
+   407→    setEvalLoss(null);
+   408→    setExpectedPointLoss(null);
+   409→  };
+   410→
+   411→  const fetchGames = async () => {
+   412→    const player = username.trim();
+   413→    setGamesOpen(true);
+   414→    setSearchError("");
+   415→    setGames([]);
+   416→    if (!player) {
+   417→      setSearchError("Enter a Chess.com username to find games.");
+   418→      return;
+   419→    }
+   420→
+   421→    reviewRunRef.current += 1;
+   422→    setIsPlaying(false);
+   423→    setGamesLoading(true);
+   424→
+   425→    try {
+   426→      const response = await fetch(
+   427→        `https://chess-analyzer-e2o0.onrender.com/games/${encodeURIComponent(player)}`
+   428→      );
+   429→      const data = await response.json();
+   430→      if (!response.ok) throw new Error(data.error || "Could not fetch games.");
+   431→      const results = Array.isArray(data) ? data : Array.isArray(data.games) ? data.games : [];
+   432→      const newestFirst = [...results]
+   433→        .sort((first, second) => Number(second.end_time || 0) - Number(first.end_time || 0))
+   434→        .slice(0, 50);
+   435→      setGames(newestFirst);
+   436→      if (!results.length) setSearchError(`No recent games found for ${player}.`);
+   437→      setFenHistory([START_FEN]);
+   438→      setMoveHistory([]);
+   439→      setUciMoveHistory([]);
+   440→      setMoveReviews({});
+   441→      setFullReview(null);
+   442→      setGameInfo(null);
+   443→      setCapturedPieces({ w: [], b: [] });
+   444→      setRetryMoveIndex(null);
+   445→      setRetryFeedback("");
+   446→      setReviewState({ status: "idle", completed: 0, total: 0 });
+   447→      setCurrentMove(0);
+   448→      resetAnalysis();
+   449→    } catch (error) {
+   450→      console.error("Could not fetch player games:", error);
+   451→      setSearchError("Could not fetch games. Check the username and try again.");
+   452→    } finally {
+   453→      setGamesLoading(false);
+   454→    }
+   455→  };
+   456→
+   457→  const loadGame = (pgn, info = {}) => {
+   458→    reviewRunRef.current += 1;
+   459→    setIsPlaying(false);
+   460→    setPreviewMove(null);
+   461→    try {
+   462→      const loadedGame = new Chess();
+   463→      loadedGame.loadPgn(pgn);
+   464→
+   465→      const verboseMoves = loadedGame.history({ verbose: true });
+   466→      const captures = { w: [], b: [] };
+   467→      verboseMoves.forEach((move) => { if (move.captured) captures[move.color].push(move.captured); });
+   468→      setCapturedPieces(captures);
+   469→      const replayGame = new Chess();
+   470→
+   471→      const sans = [];
+   472→      const uciMoves = [];
+   473→      const fens = [replayGame.fen()];
+   474→
+   475→      for (const move of verboseMoves) {
+   476→        sans.push(move.san);
+   477→        uciMoves.push(`${move.from}${move.to}${move.promotion || ""}`);
+   478→
+   479→        replayGame.move(move.san);
+   480→        fens.push(replayGame.fen());
+   481→      }
+   482→
+   483→      setMoveHistory(sans);
+   484→      setUciMoveHistory(uciMoves);
+   485→      setMoveReviews({});
+   486→      setFullReview(null);
+   487→      setReviewState({ status: "idle", completed: 0, total: 0 });
+   488→      setRetryMoveIndex(null);
+   489→      setRetryFeedback("");
+   490→      const headers = loadedGame.getHeaders();
+   491→      setGameInfo({
+   492→        white: info.white?.username || headers.White || "White",
+   493→        black: info.black?.username || headers.Black || "Black",
+   494→        whiteElo: info.white?.rating ?? headers.WhiteElo ?? headers.WhiteRating ?? null,
+   495→        blackElo: info.black?.rating ?? headers.BlackElo ?? headers.BlackRating ?? null,
+   496→        whiteTitle: info.white?.title || headers.WhiteTitle || "",
+   497→        blackTitle: info.black?.title || headers.BlackTitle || "",
+   498→        result: headers.Result || (info.white?.result === "win" ? `${info.white?.username || "White"} won` : info.black?.result === "win" ? `${info.black?.username || "Black"} won` : info.white?.result === "agreed" || info.white?.result === "repetition" ? "Draw" : "—"),
+   499→        date: info.end_time ? new Date(info.end_time * 1000).toLocaleDateString() : headers.Date || "Date unavailable",
+   500→        timeClass: info.time_class || "Game",
+   501→        opening: headers.Opening || info.opening?.name || (info.eco ? decodeURIComponent(info.eco.split("/").filter(Boolean).pop().replace(/-/g, " ")) : "Opening not provided"),
+   502→        event: headers.Event || "Chess.com game",
+   503→      });
+   504→      setFenHistory(fens);
+   505→      setCurrentMove(0);
+   506→      resetAnalysis();
+   507→    } catch (error) {
+   508→      console.log(error);
+   509→    }
+   510→  };
+   511→
+   512→  const nextMove = () => {
+   513→    setCurrentMove((move) => Math.min(move + 1, fenHistory.length - 1));
+   514→  };
+   515→
+   516→  const previousMove = () => {
+   517→    setCurrentMove((move) => Math.max(move - 1, 0));
+   518→  };
+   519→
+   520→  const jumpToMove = (moveIndex) => {
+   521→    setCurrentMove(Math.max(0, Math.min(moveIndex, fenHistory.length - 1)));
+   522→    setPreviewMove(null);
+   523→    setEngineMovePreview(null);
+   524→  };
+   525→
+   526→  const toggleEngineMovePreview = () => {
+   527→    if (isEngineMovePreview && engineMovePreview.uci === bestMove) {
+   528→      setEngineMovePreview(null);
+   529→      return;
+   530→    }
+   531→    if (!bestMove || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(bestMove)) return;
+   532→    try {
+   533→      const position = new Chess(fen);
+   534→      const move = position.move({ from: bestMove.slice(0, 2), to: bestMove.slice(2, 4), promotion: bestMove[4] || "q" });
+   535→      if (!move) return;
+   536→      setPreviewMove(null);
+   537→      setEngineMovePreview({ baseFen: fen, fen: position.fen(), from: move.from, to: move.to, san: move.san, uci: bestMove });
+   538→    } catch {
+   539→      setEngineMovePreview(null);
+   540→    }
+   541→  };
+   542→
+   543→  useEffect(() => {
+   544→    if (!isPlaying) return undefined;
+   545→    const timer = window.setInterval(() => {
+   546→      setCurrentMove((move) => {
+   547→        if (move >= fenHistory.length - 1) {
+   548→          setIsPlaying(false);
+   549→          return move;
+   550→        }
+   551→        return move + 1;
+   552→      });
+   553→    }, 650);
+   554→    return () => window.clearInterval(timer);
+   555→  }, [isPlaying, fenHistory.length]);
+   556→
+   557→  useEffect(() => {
+   558→    const handleNavigation = (event) => {
+   559→      if (event.altKey || event.ctrlKey || event.metaKey) return;
+   560→      const target = event.target;
+   561→      if (target instanceof HTMLElement && (target.isContentEditable || /INPUT|SELECT|TEXTAREA|BUTTON/.test(target.tagName))) return;
+   562→      if (event.key === "ArrowLeft") { event.preventDefault(); setCurrentMove((move) => Math.max(move - 1, 0)); }
+   563→      if (event.key === "ArrowRight") { event.preventDefault(); setCurrentMove((move) => Math.min(move + 1, fenHistory.length - 1)); }
+   564→    };
+   565→    window.addEventListener("keydown", handleNavigation);
+   566→    return () => window.removeEventListener("keydown", handleNavigation);
+   567→  }, [fenHistory.length]);
+   568→
+   569→  useEffect(() => {
+   570→    setEngineMovePreview(null);
+   571→    selectedMoveRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+   572→  }, [currentMove]);
+   573→
+   574→  const getCurrentGameMove = () => {
+   575→    if (currentMove === 0) return "Start position";
+   576→    return moveHistory[currentMove - 1] || "-";
+   577→  };
+   578→
+   579→  const formatEvaluation = (score) => {
+   580→    if (!score) return "Analyzing...";
+   581→
+   582→    if (score.type === "mate") {
+   583→      return score.value > 0
+   584→        ? `White mate in ${score.value}`
+   585→        : `Black mate in ${Math.abs(score.value)}`;
+   586→    }
+   587→
+   588→    const pawns = score.value / 100;
+   589→    return pawns > 0 ? `+${pawns.toFixed(2)}` : pawns.toFixed(2);
+   590→  };
+   591→
+   592→  const convertUciMoveToSan = (chess, uciMove) => {
+   593→    const move = chess.move({
+   594→      from: uciMove.slice(0, 2),
+   595→      to: uciMove.slice(2, 4),
+   596→      promotion: uciMove[4] || "q",
+   597→    });
+   598→
+   599→    return move ? move.san : uciMove;
+   600→  };
+   601→
+   602→  const getBestMoveSan = (uciMove) => {
+   603→    if (!uciMove || uciMove === "(none)") return "None";
+   604→
+   605→    try {
+   606→      const chess = new Chess(fen);
+   607→      const san = convertUciMoveToSan(chess, uciMove);
+   608→      return `${san} (${uciMove})`;
+   609→    } catch {
+   610→      return uciMove;
+   611→    }
+   612→  };
+   613→
+   614→  const getBestLineSan = () => {
+   615→    if (!bestLine.length) return "Analyzing...";
+   616→
+   617→    try {
+   618→      const chess = new Chess(fen);
+   619→
+   620→      return bestLine
+   621→        .map((uciMove) => convertUciMoveToSan(chess, uciMove))
+   622→        .join(" ");
+   623→    } catch {
+   624→      return bestLine.join(" ");
+   625→    }
+   626→  };
+   627→
+   628→  const scoreToWhiteCentipawns = (score, fenToScore) => {
+   629→    const sideToMove = fenToScore.split(" ")[1];
+   630→
+   631→    if (score.type === "mate") {
+   632→      // Preserve mate distance so mate-in-2 is better than mate-in-8 (and
+   633→      // losing sooner is worse). Stockfish reports mate distance in moves.
+   634→      const mateDistance = Math.abs(score.value);
+   635→      const mateMagnitude = Math.max(0, 100000 - mateDistance * 100);
+   636→      const mateSign = score.value === 0 ? -1 : Math.sign(score.value);
+   637→      const mateValue = mateSign * mateMagnitude;
+   638→      return sideToMove === "b" ? -mateValue : mateValue;
+   639→    }
+   640→
+   641→    return sideToMove === "b" ? -score.value : score.value;
+   642→  };
+   643→
+   644→  const scoreToExpectedPoints = (score, fenToScore) => {
+   645→    // Stockfish UCI WDL is from the side-to-move perspective and is
+   646→    // material-aware, so use it directly when the engine provides valid data.
+   647→    if (Array.isArray(score?.wdl) && score.wdl.length === 3) {
+   648→      const [wins, draws, losses] = score.wdl;
+   649→      const total = wins + draws + losses;
+   650→      if ([wins, draws, losses].every((value) => Number.isFinite(value) && value >= 0) && total > 0) {
+   651→        return (wins + draws / 2) / total;
+   652→      }
+   653→    }
+   654→
+   655→    // Fallback for engine builds without UCI_ShowWDL.
+   656→    const whiteCp = scoreToWhiteCentipawns(score, fenToScore);
+   657→    const moverCp = fenToScore.split(" ")[1] === "w" ? whiteCp : -whiteCp;
+   658→    const boundedCp = Math.max(-3000, Math.min(3000, moverCp));
+   659→    return 1 / (1 + Math.exp(-WIN_PERCENT_SLOPE * boundedCp));
+   660→  };
+   661→
+   662→  const classifyExpectedPointsLoss = (loss, playedBestMove) => {
+   663→    if (playedBestMove) return "Best";
+   664→    if (!Number.isFinite(loss)) return "Blunder";
+   665→    if (loss < 0.02) return "Excellent";
+   666→    if (loss < 0.05) return "Good";
+   667→    if (loss < 0.10) return "Inaccuracy";
+   668→    if (loss < 0.20) return "Mistake";
+   669→    return "Blunder";
+   670→  };
+   671→
+   672→  const calculateMoveAccuracy = (reviews, color) => {
+   673→    const sideReviews = reviews.filter((review) => review.color === color);
+   674→    if (!sideReviews.length) return null;
+   675→    const topThreeMatches = sideReviews.filter((review) => {
+   676→      const isTopThreeMove = review.topMoves?.includes(review.playedMove);
+   677→      const preservesMoverEval = review.color === "w"
+   678→        ? review.playedWhite >= review.bestWhite
+   679→        : review.playedWhite <= review.bestWhite;
+   680→      return isTopThreeMove && preservesMoverEval;
+   681→    }).length;
+   682→    return { percentage: Math.round((topThreeMatches / sideReviews.length) * 100), topThreeMatches, total: sideReviews.length };
+   683→  };
+   684→
+   685→  const calculateGameRating = (reviews, color, baseElo) => {
+   686→    const baseline = Number(baseElo);
+   687→    if (!Number.isFinite(baseline) || baseline <= 0) return null;
+   688→    const moves = reviews.filter((review) => review.color === color && Number.isFinite(review.expectedPointsLoss));
+   689→    if (!moves.length) return null;
+   690→
+   691→    const averageExpectedPointsLoss = moves.reduce((total, review) => total + review.expectedPointsLoss, 0) / moves.length;
+   692→    const adjustment = Math.max(-400, Math.min(200, Math.round((0.04 - averageExpectedPointsLoss) * 1600)));
+   693→    return {
+   694→      rating: Math.round(baseline) + adjustment,
+   695→      baseline: Math.round(baseline),
+   696→      adjustment,
+   697→      averageExpectedPointsLoss,
+   698→    };
+   699→  };
+   700→
+   701→  const materialBalanceFor = (chess, color) => chess.board().flat().reduce((balance, piece) => {
+   702→    if (!piece || piece.type === "k") return balance;
+   703→    const value = PIECE_VALUES[piece.type] || 0;
+   704→    return balance + (piece.color === color ? value : -value);
+   705→  }, 0);
+   706→
+   707→  const findMaterialSacrifice = (previousFen, playedMove) => {
+   708→    try {
+   709→      const chess = new Chess(previousFen);
+   710→      const mover = chess.turn();
+   711→      const materialBefore = materialBalanceFor(chess, mover);
+   712→      const move = chess.move({
+   713→        from: playedMove.slice(0, 2),
+   714→        to: playedMove.slice(2, 4),
+   715→        promotion: playedMove[4] || "q",
+   716→      });
+   717→
+   718→      if (!move) return null;
+   719→      const movedPiece = chess.get(move.to);
+   720→      const movedPieceValue = movedPiece ? PIECE_VALUES[movedPiece.type] || 0 : 0;
+   721→      if (movedPieceValue < 300) return null;
+   722→
+   723→      // Follow the complete legal exchange on the destination square. Looking
+   724→      // only one recapture deep can miss a real sacrifice when the exchange
+   725→      // continues and the tactical compensation appears later in the line.
+   726→      const exchangeMemo = new Map();
+   727→      const bestExchangeBalance = (position, targetSquare) => {
+   728→        const key = `${position.fen()}|${targetSquare}|${mover}`;
+   729→        if (exchangeMemo.has(key)) return exchangeMemo.get(key);
+   730→        const standPat = materialBalanceFor(position, mover);
+   731→        const captures = position.moves({ verbose: true }).filter((reply) => reply.to === targetSquare && reply.captured);
+   732→        if (!captures.length) {
+   733→          exchangeMemo.set(key, standPat);
+   734→          return standPat;
+   735→        }
+   736→
+   737→        const balances = captures.map((capture) => {
+   738→          const next = new Chess(position.fen());
+   739→          next.move({ from: capture.from, to: capture.to, promotion: capture.promotion });
+   740→          return bestExchangeBalance(next, targetSquare);
+   741→        });
+   742→        const moverChooses = position.turn() === mover;
+   743→        const continuation = moverChooses ? Math.max(...balances) : Math.min(...balances);
+   744→        const bestBalance = moverChooses ? Math.max(standPat, continuation) : Math.min(standPat, continuation);
+   745→        exchangeMemo.set(key, bestBalance);
+   746→        return bestBalance;
+   747→      };
+   748→
+   749→      // A piece being attacked does not by itself make a sacrifice. The
+   750→      // opponent must have a legal capture that leaves a meaningful net loss
+   751→      // after both sides choose their best continuation in that exchange.
+   752→      const captures = chess.moves({ verbose: true }).filter((reply) => reply.to === move.to && reply.captured);
+   753→      for (const capture of captures) {
+   754→        const afterCapture = new Chess(chess.fen());
+   755→        afterCapture.move({ from: capture.from, to: capture.to, promotion: capture.promotion });
+   756→        const bestMaterialAfterReply = bestExchangeBalance(afterCapture, move.to);
+   757→        const netMaterialOffered = materialBefore - bestMaterialAfterReply;
+   758→        if (netMaterialOffered >= 200) return { netMaterialOffered, offeredPieceValue: movedPieceValue };
+   759→      }
+   760→      return null;
+   761→    } catch {
+   762→      return null;
+   763→    }
+   764→  };
+   765→
+   766→  const isBrilliantMove = ({
+   767→    playedBestMove,
+   768→    expectedPointsLoss,
+   769→    centipawnLoss,
+   770→    previousFen,
+   771→    playedMove,
+   772→    bestExpectedPoints,
+   773→    playedExpectedPoints,
+   774→  }) => {
+   775→    const sacrifice = findMaterialSacrifice(previousFen, playedMove);
+   776→    const isBestOrNearBest = playedBestMove || (expectedPointsLoss <= 0.01 && centipawnLoss <= 35);
+   777→    return Boolean(
+   778→      isBestOrNearBest &&
+   779→      sacrifice &&
+   780→      playedExpectedPoints >= 0.5 &&
+   781→      bestExpectedPoints < 0.95
+   782→    );
+   783→  };
+   784→
+   785→  const isGreatMove = ({ brilliant, playedBestMove, secondBestExpectedPointsLoss }) => (
+   786→    !brilliant && playedBestMove && secondBestExpectedPointsLoss >= 0.15
+   787→  );
+   788→
+   789→  const classifyMoveReview = async ({
+   790→    index,
+   791→    previousFen,
+   792→    currentFen,
+   793→    playedMove,
+   794→    before,
+   795→    after,
+   796→    previousOpponentQuality = null,
+   797→  }) => {
+   798→    if (!before?.score) throw new Error("Engine did not return a best-position score");
+   799→
+   800→    const mover = previousFen.split(" ")[1];
+   801→    const beforeWhite = scoreToWhiteCentipawns(before.score, previousFen);
+   802→    const bestExpectedPoints = scoreToExpectedPoints(before.score, previousFen);
+   803→    const currentPosition = new Chess(currentFen);
+   804→    let playedWhite;
+   805→    let playedExpectedPoints;
+   806→
+   807→    if (after?.score) {
+   808→      playedWhite = scoreToWhiteCentipawns(after.score, currentFen);
+   809→      playedExpectedPoints = 1 - scoreToExpectedPoints(after.score, currentFen);
+   810→    } else if (currentPosition.isCheckmate()) {
+   811→      playedWhite = mover === "w" ? 100000 : -100000;
+   812→      playedExpectedPoints = 1;
+   813→    } else if (currentPosition.isDraw()) {
+   814→      playedWhite = 0;
+   815→      playedExpectedPoints = 0.5;
+   816→    } else {
+   817→      throw new Error("Engine did not return a played-position score");
+   818→    }
+   819→
+   820→    const expectedPointsLoss = Math.max(0, bestExpectedPoints - playedExpectedPoints);
+   821→    const evalLoss = Math.max(0, mover === "w" ? beforeWhite - playedWhite : playedWhite - beforeWhite);
+   822→    const bestMove = before.bestMove || before.topMoves?.[0] || null;
+   823→    const topMoves = before.topMoves?.length ? before.topMoves : [bestMove].filter(Boolean);
+   824→    const playedBestMove = bestMove === playedMove;
+   825→    const secondBestScore = before.depths?.[2] === before.depths?.[1]
+   826→      ? before.alternatives?.[2]
+   827→      : null;
+   828→    const secondExpectedPoints = secondBestScore
+   829→      ? scoreToExpectedPoints(secondBestScore, previousFen)
+   830→      : null;
+   831→    const secondBestExpectedPointsLoss = secondExpectedPoints === null
+   832→      ? 0
+   833→      : Math.max(0, bestExpectedPoints - secondExpectedPoints);
+   834→
+   835→    const brilliant = isBrilliantMove({
+   836→      playedBestMove,
+   837→      expectedPointsLoss,
+   838→      centipawnLoss: evalLoss,
+   839→      previousFen,
+   840→      playedMove,
+   841→      bestExpectedPoints,
+   842→      playedExpectedPoints,
+   843→    });
+   844→    const great = isGreatMove({ brilliant, playedBestMove, secondBestExpectedPointsLoss });
+   845→    const forced = new Chess(previousFen).moves().length === 1;
+   846→    const book = await isOpeningBookPosition(currentFen);
+   847→    const opponentMadeError = ["Inaccuracy", "Mistake", "Blunder"].includes(previousOpponentQuality);
+   848→    const missCandidate = bestExpectedPoints >= 0.7 &&
+   849→      playedExpectedPoints >= 0.5 &&
+   850→      playedExpectedPoints < 0.7 &&
+   851→      expectedPointsLoss >= 0.1;
+   852→
+   853→    let quality = classifyExpectedPointsLoss(expectedPointsLoss, playedBestMove);
+   854→    if (forced) quality = "Forced";
+   855→    else if (book) quality = "Book";
+   856→    else if (brilliant) quality = "Brilliant";
+   857→    else if (great) quality = "Great";
+   858→    else if (opponentMadeError && missCandidate) quality = "Miss";
+   859→
+   860→    return {
+   861→      index,
+   862→      color: mover,
+   863→      quality,
+   864→      evalLoss,
+   865→      expectedPointsLoss,
+   866→      bestMove,
+   867→      topMoves,
+   868→      playedMove,
+   869→      bestLine: bestMove,
+   870→      bestWhite: beforeWhite,
+   871→      playedWhite,
+   872→      missCandidate,
+   873→    };
+   874→  };
+   875→
+   876→  const analyzeFenOnce = (fenToAnalyze, depth, forcedMove = null, multiPv = 1) => {
+   877→    return new Promise((resolve, reject) => {
+   878→      const worker = new Worker(STOCKFISH_PATH);
+   879→
+   880→      const scoresByLine = {};
+   881→      const movesByDepth = {};
+   882→      const requestedTopMoveCount = Math.max(1, Math.min(multiPv, new Chess(fenToAnalyze).moves().length));
+   883→      let latestBestMove = null;
+   884→      let finished = false;
+   885→
+   886→      const finish = (result) => {
+   887→        if (finished) return;
+   888→        finished = true;
+   889→        worker.terminate();
+   890→        resolve(result);
+   891→      };
+   892→
+   893→      const timeout = setTimeout(() => {
+   894→        if (!finished) {
+   895→          worker.terminate();
+   896→          reject(new Error("Stockfish analysis timed out"));
+   897→        }
+   898→      }, depth > 16 ? 60000 : 30000);
+   899→
+   900→      worker.onmessage = (event) => {
+   901→        const line = String(event.data);
+   902→
+   903→        if (line === "uciok") {
+   904→          worker.postMessage("setoption name UCI_ShowWDL value true");
+   905→          worker.postMessage(`setoption name MultiPV value ${multiPv}`);
+   906→          worker.postMessage("isready");
+   907→          return;
+   908→        }
+   909→
+   910→        if (line === "readyok") {
+   911→          worker.postMessage(`position fen ${fenToAnalyze}`);
+   912→          worker.postMessage(
+   913→            forcedMove
+   914→              ? `go depth ${depth} searchmoves ${forcedMove}`
+   915→              : `go depth ${depth}`
+   916→          );
+   917→          return;
+   918→        }
+   919→
+   920→        if (line.startsWith("info depth")) {
+   921→          const depthMatch = line.match(/\bdepth (\d+)/);
+   922→          const multipvMatch = line.match(/\bmultipv (\d+)/);
+   923→          const lineDepth = depthMatch ? Number(depthMatch[1]) : 0;
+   924→          const lineNumber = multipvMatch ? Number(multipvMatch[1]) : 1;
+   925→          const cpMatch = line.match(/score cp (-?\d+)/);
+   926→          const mateMatch = line.match(/score mate (-?\d+)/);
+   927→          const wdlMatch = line.match(/\bwdl\s+(\d+)\s+(\d+)\s+(\d+)/i);
+   928→          const pvMatch = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+   929→          const wdl = wdlMatch ? wdlMatch.slice(1).map(Number) : null;
+   930→          const isBound = /\b(?:lowerbound|upperbound)\b/.test(line);
+   931→
+   932→          let score = null;
+   933→          if (mateMatch) {
+   934→            score = {
+   935→              type: "mate",
+   936→              value: Number(mateMatch[1]),
+   937→              wdl,
+   938→            };
+   939→          } else if (cpMatch) {
+   940→            score = {
+   941→              type: "cp",
+   942→              value: Number(cpMatch[1]),
+   943→              wdl,
+   944→            };
+   945→          }
+   946→
+   947→          if (score && !isBound && lineDepth >= (scoresByLine[lineNumber]?.depth || 0)) {
+   948→            scoresByLine[lineNumber] = { depth: lineDepth, score };
+   949→            if (pvMatch) {
+   950→              movesByDepth[lineDepth] ||= {};
+   951→              movesByDepth[lineDepth][lineNumber] = pvMatch[1];
+   952→            }
+   953→            if (lineNumber === 1 && pvMatch) latestBestMove = pvMatch[1];
+   954→          }
+   955→          return;
+   956→        }
+   957→
+   958→        if (line.startsWith("bestmove")) {
+   959→          clearTimeout(timeout);
+   960→          const requiredLineNumbers = Array.from({ length: requestedTopMoveCount }, (_, index) => index + 1);
+   961→          const deepestCompleteLines = Object.keys(movesByDepth)
+   962→            .map(Number)
+   963→            .sort((a, b) => b - a)
+   964→            .map((lineDepth) => movesByDepth[lineDepth])
+   965→            .find((lines) => requiredLineNumbers.every((lineNumber) => lines[lineNumber]));
+   966→          const topMoves = deepestCompleteLines
+   967→            ? requiredLineNumbers.map((lineNumber) => deepestCompleteLines[lineNumber])
+   968→            : [];
+   969→
+   970→          const move = line.split(" ")[1];
+   971→
+   972→          finish({
+   973→            score: scoresByLine[1]?.score || null,
+   974→            topMoves,
+   975→            alternatives: Object.fromEntries(
+   976→              Object.entries(scoresByLine).map(([lineNumber, lineInfo]) => [
+   977→                lineNumber,
+   978→                lineInfo.score,
+   979→              ])
+   980→            ),
+   981→            depths: Object.fromEntries(
+   982→              Object.entries(scoresByLine).map(([lineNumber, lineInfo]) => [
+   983→                lineNumber,
+   984→                lineInfo.depth,
+   985→              ])
+   986→            ),
+   987→            bestMove: move || latestBestMove,
+   988→          });
+   989→        }
+   990→      };
+   991→
+   992→      worker.onerror = (error) => {
+   993→        clearTimeout(timeout);
+   994→        worker.terminate();
+   995→        reject(error);
+   996→      };
+   997→
+   998→      worker.postMessage("uci");
+   999→    });
+  1000→  };
+  1001→
+  1002→  const runFullReview = async () => {
+  1003→    if (!uciMoveHistory.length || reviewState.status === "running") return;
+  1004→    const runId = reviewRunRef.current + 1;
+  1005→    reviewRunRef.current = runId;
+  1006→    setReviewState({ status: "running", completed: 0, total: uciMoveHistory.length });
+  1007→    setFullReview(null);
+  1008→    const results = [];
+  1009→    const positions = [];
+  1010→    let initialWhite = 0;
+  1011→    try {
+  1012→      for (let index = 0; index < uciMoveHistory.length; index += 1) {
+  1013→        if (reviewRunRef.current !== runId) return;
+  1014→        const beforeFen = fenHistory[index];
+  1015→        const afterFen = fenHistory[index + 1];
+  1016→        const playedMove = uciMoveHistory[index];
+  1017→        const before = await analyzeFenOnce(beforeFen, Math.min(analysisDepth, 20), null, 3);
+  1018→        if (reviewRunRef.current !== runId) return;
+  1019→        const after = await analyzeFenOnce(afterFen, Math.min(analysisDepth, 20), null, 1);
+  1020→        if (reviewRunRef.current !== runId) return;
+  1021→        if (!before.score) throw new Error(`Engine did not return a best-position score for move ${index + 1}`);
+  1022→
+  1023→        const review = await classifyMoveReview({
+  1024→          index,
+  1025→          previousFen: beforeFen,
+  1026→          currentFen: afterFen,
+  1027→          playedMove,
+  1028→          before,
+  1029→          after,
+  1030→          previousOpponentQuality: results[index - 1]?.quality || null,
+  1031→        });
+  1032→        results.push(review);
+  1033→        if (index === 0) initialWhite = review.bestWhite;
+  1034→        positions.push(review.playedWhite);
+  1035→        setMoveReviews((existing) => ({ ...existing, [index]: review }));
+  1036→        setReviewState({ status: "running", completed: index + 1, total: uciMoveHistory.length });
+  1037→      }
+  1038→      if (reviewRunRef.current !== runId) return;
+  1039→      const allPoints = [initialWhite, ...positions];
+  1040→      const moments = results.filter((item) => ["Brilliant", "Great", "Miss", "Inaccuracy", "Mistake", "Blunder"].includes(item.quality));
+  1041→      setFullReview({
+  1042→        moves: results,
+  1043→        points: allPoints,
+  1044→        whiteAccuracy: calculateMoveAccuracy(results, "w"),
+  1045→        blackAccuracy: calculateMoveAccuracy(results, "b"),
+  1046→        whiteGameRating: calculateGameRating(results, "w", gameInfo?.whiteElo),
+  1047→        blackGameRating: calculateGameRating(results, "b", gameInfo?.blackElo),
+  1048→        moments,
+  1049→      });
+  1050→      setReviewState({ status: "complete", completed: uciMoveHistory.length, total: uciMoveHistory.length });
+  1051→    } catch (error) {
+  1052→      console.error("Full game review failed:", error);
+  1053→      setReviewState((state) => ({ ...state, status: "error", error: error.message || "Review failed" }));
+  1054→    }
+  1055→  };
+  1056→
+  1057→  const cancelFullReview = () => {
+  1058→    reviewRunRef.current += 1;
+  1059→    setReviewState((state) => ({ ...state, status: "idle" }));
+  1060→  };
+  1061→
+  1062→  const setSelectedGame = (game) => {
+  1063→    setGamesOpen(false);
+  1064→    setSearchError("");
+  1065→    if (game.pgn) loadGame(game.pgn, game);
+  1066→  };
+  1067→
+  1068→  const moveQualityCounts = useMemo(() => {
+  1069→    if (!fullReview) return [];
+  1070→    return ["Brilliant", "Great", "Best", "Excellent", "Good", "Book", "Forced", "Inaccuracy", "Mistake", "Miss", "Blunder"]
+  1071→      .map((quality) => ({ quality, count: fullReview.moves.filter((move) => move.quality === quality).length }))
+  1072→      .filter((entry) => entry.count > 0);
+  1073→  }, [fullReview]);
+  1074→
+  1075→  const retryMistake = (index) => {
+  1076→    setRetryMoveIndex(index);
+  1077→    setRetryFeedback("");
+  1078→    jumpToMove(index);
+  1079→  };
+  1080→
+  1081→  const getCurrentMoveIconOverlay = () => {
+  1082→    if (isEngineMovePreview || retryMoveIndex !== null || currentMove === 0 || !moveQuality || moveQuality === "Checking...") {
+  1083→      return null;
+  1084→    }
+  1085→
+  1086→    const playedMove = uciMoveHistory[currentMove - 1];
+  1087→
+  1088→    if (!playedMove) return null;
+  1089→
+  1090→    const square = playedMove.slice(2, 4);
+  1091→    const file = square.charCodeAt(0) - "a".charCodeAt(0);
+  1092→    const rank = Number(square[1]);
+  1093→
+  1094→    const left = file * 12.5 + 8.8;
+  1095→    const top = (8 - rank) * 12.5 + 1.4;
+  1096→
+  1097→    return (
+  1098→      <div
+  1099→        style={{
+  1100→          position: "absolute",
+  1101→          left: `${left}%`,
+  1102→          top: `${top}%`,
+  1103→          zIndex: 5,
+  1104→          pointerEvents: "none",
+  1105→        }}
+  1106→      >
+  1107→        <QualityIcon quality={moveQuality} size={34} />
+  1108→      </div>
+  1109→    );
+  1110→  };
+  1111→
+  1112→  useEffect(() => {
+  1113→    const stockfish = new Worker(STOCKFISH_PATH);
+  1114→    stockfishRef.current = stockfish;
+  1115→
+  1116→    stockfish.onmessage = (event) => {
+  1117→      const line = String(event.data);
+  1118→
+  1119→      if (line === "uciok") {
+  1120→        stockfish.postMessage("isready");
+  1121→        return;
+  1122→      }
+  1123→
+  1124→      if (line === "readyok") {
+  1125→        setEngineReady(true);
+  1126→        setEngineStatus("Ready");
+  1127→        return;
+  1128→      }
+  1129→
+  1130→      if (line.startsWith("info depth")) {
+  1131→        const depthMatch = line.match(/depth (\d+)/);
+  1132→        const cpMatch = line.match(/score cp (-?\d+)/);
+  1133→        const mateMatch = line.match(/score mate (-?\d+)/);
+  1134→        const pvMatch = line.match(/ pv (.+)/);
+  1135→
+  1136→        if (depthMatch) setEngineDepth(Number(depthMatch[1]));
+  1137→
+  1138→        const currentFen = fenRef.current;
+  1139→        const sideToMove = currentFen.split(" ")[1];
+  1140→
+  1141→        if (mateMatch) {
+  1142→          const mateScore = Number(mateMatch[1]);
+  1143→
+  1144→          setEvaluation({
+  1145→            type: "mate",
+  1146→            value: sideToMove === "b" ? -mateScore : mateScore,
+  1147→          });
+  1148→        } else if (cpMatch) {
+  1149→          const centipawns = Number(cpMatch[1]);
+  1150→
+  1151→          setEvaluation({
+  1152→            type: "cp",
+  1153→            value: sideToMove === "b" ? -centipawns : centipawns,
+  1154→          });
+  1155→        }
+  1156→
+  1157→        if (pvMatch) {
+  1158→          const lineMoves = pvMatch[1].trim().split(" ");
+  1159→          setBestLine(lineMoves);
+  1160→          setBestMove(lineMoves[0]);
+  1161→        }
+  1162→
+  1163→        return;
+  1164→      }
+  1165→
+  1166→      if (line.startsWith("bestmove")) {
+  1167→        const move = line.split(" ")[1];
+  1168→
+  1169→        if (move) setBestMove(move);
+  1170→
+  1171→        setEngineStatus("Complete");
+  1172→      }
+  1173→    };
+  1174→
+  1175→    stockfish.onerror = (error) => {
+  1176→      console.log(error);
+  1177→      setEngineStatus("Stockfish failed to load");
+  1178→    };
+  1179→
+  1180→    stockfish.postMessage("uci");
+  1181→
+  1182→    return () => {
+  1183→      stockfish.terminate();
+  1184→    };
+  1185→  }, []);
+  1186→
+  1187→  useEffect(() => {
+  1188→    if (!engineReady || !stockfishRef.current) return;
+  1189→
+  1190→    setEngineStatus("Analyzing...");
+  1191→    resetAnalysis();
+  1192→
+  1193→    stockfishRef.current.postMessage("stop");
+  1194→    stockfishRef.current.postMessage(`position fen ${fen}`);
+  1195→    stockfishRef.current.postMessage(`go depth ${analysisDepth}`);
+  1196→  }, [fen, engineReady, analysisDepth]);
+  1197→
+  1198→  useEffect(() => {
+  1199→    let cancelled = false;
+  1200→    const analyzeMoveQuality = async () => {
+  1201→      if (currentMove === 0) {
+  1202→        setMoveQuality(null);
+  1203→        setEvalLoss(null);
+  1204→        setExpectedPointLoss(null);
+  1205→        return;
+  1206→      }
+  1207→
+  1208→      const reviewIndex = currentMove - 1;
+  1209→      const cachedReview = moveReviews[reviewIndex];
+  1210→
+  1211→      if (cachedReview) {
+  1212→        setMoveQuality(cachedReview.quality);
+  1213→        setEvalLoss(cachedReview.evalLoss);
+  1214→        setExpectedPointLoss(cachedReview.expectedPointsLoss ?? null);
+  1215→        return;
+  1216→      }
+  1217→
+  1218→      const previousFen = fenHistory[reviewIndex];
+  1219→      const currentFen = fenHistory[currentMove];
+  1220→      const playedMove = uciMoveHistory[reviewIndex];
+  1221→
+  1222→      if (!previousFen || !currentFen || !playedMove) return;
+  1223→
+  1224→      try {
+  1225→        setMoveQuality("Checking...");
+  1226→        setEvalLoss(null);
+  1227→        setExpectedPointLoss(null);
+  1228→
+  1229→        // Move reviews are capped to keep browser analysis responsive.
+  1230→        const depth = Math.min(analysisDepth, 20);
+  1231→        const before = await analyzeFenOnce(previousFen, depth, null, 3);
+  1232→        if (cancelled) return;
+  1233→        const played = await analyzeFenOnce(currentFen, depth, null, 1);
+  1234→        if (cancelled) return;
+  1235→        if (!before.score) {
+  1236→          setMoveQuality(null);
+  1237→          return;
+  1238→        }
+  1239→
+  1240→        let previousOpponentQuality = moveReviews[reviewIndex - 1]?.quality || null;
+  1241→        let review = await classifyMoveReview({
+  1242→          index: reviewIndex,
+  1243→          previousFen,
+  1244→          currentFen,
+  1245→          playedMove,
+  1246→          before,
+  1247→          after: played,
+  1248→          previousOpponentQuality,
+  1249→        });
+  1250→
+  1251→        if (review.missCandidate && !["Forced", "Book"].includes(review.quality) && reviewIndex > 0 && !previousOpponentQuality) {
+  1252→          const precedingFen = fenHistory[reviewIndex - 1];
+  1253→          const precedingMove = uciMoveHistory[reviewIndex - 1];
+  1254→          if (precedingFen && precedingMove) {
+  1255→            const precedingPosition = new Chess(precedingFen);
+  1256→            if (precedingPosition.moves().length === 1) {
+  1257→              previousOpponentQuality = "Forced";
+  1258→            } else if (await isOpeningBookPosition(previousFen)) {
+  1259→              previousOpponentQuality = "Book";
+  1260→            } else {
+  1261→              const precedingAnalysis = await analyzeFenOnce(precedingFen, depth, null, 3);
+  1262→              if (cancelled) return;
+  1263→              if (precedingAnalysis.score) {
+  1264→                const opponentBestPoints = scoreToExpectedPoints(precedingAnalysis.score, precedingFen);
+  1265→                const opponentActualPoints = 1 - scoreToExpectedPoints(before.score, previousFen);
+  1266→                const opponentPointsLoss = Math.max(0, opponentBestPoints - opponentActualPoints);
+  1267→                previousOpponentQuality = classifyExpectedPointsLoss(
+  1268→                  opponentPointsLoss,
+  1269→                  precedingAnalysis.bestMove === precedingMove
+  1270→                );
+  1271→              }
+  1272→            }
+  1273→            review = await classifyMoveReview({
+  1274→              index: reviewIndex,
+  1275→              previousFen,
+  1276→              currentFen,
+  1277→              playedMove,
+  1278→              before,
+  1279→              after: played,
+  1280→              previousOpponentQuality,
+  1281→            });
+  1282→          }
+  1283→        }
+  1284→
+  1285→        setEvalLoss(review.evalLoss);
+  1286→        setExpectedPointLoss(review.expectedPointsLoss);
+  1287→        setMoveQuality(review.quality);
+  1288→        setMoveReviews((reviews) => ({ ...reviews, [reviewIndex]: review }));
+  1289→      } catch (error) {
+  1290→        if (!cancelled) {
+  1291→          console.error("Move review failed:", error);
+  1292→          setMoveQuality(null);
+  1293→        }
+  1294→      }
+  1295→
+  1296→    };
+  1297→
+  1298→    analyzeMoveQuality();
+  1299→    return () => {
+  1300→      // The async review checks this flag between engine searches so results
+  1301→      // for an old selected move cannot overwrite the newly selected move.
+  1302→      cancelled = true;
+  1303→    };
+  1304→    // These helpers are pure; their changing identities must not restart engine jobs.
+  1305→    // eslint-disable-next-line react-hooks/exhaustive-deps
+  1306→  }, [currentMove, fenHistory, uciMoveHistory, analysisDepth, moveReviews]);
+  1307→
+  1308→  const chessboardOptions = useMemo(
+  1309→    () => ({
+  1310→      position: boardFen,
+  1311→      boardOrientation,
+  1312→      animationDurationInMs: 250,
+  1313→      arrows: previewMove === null && !isEngineMovePreview && bestMove && /^[a-h][1-8][a-h][1-8]/.test(bestMove)
+  1314→        ? [{ startSquare: bestMove.slice(0, 2), endSquare: bestMove.slice(2, 4), color: "rgba(191,255,86,.78)" }]
+  1315→        : [],
+  1316→      squareStyles: (() => {
+  1317→        const styles = {};
+  1318→        const lastMove = isEngineMovePreview
+  1319→          ? `${engineMovePreview.from}${engineMovePreview.to}`
+  1320→          : uciMoveHistory[(previewMove ?? currentMove) - 1];
+  1321→        if (lastMove) {
+  1322→          styles[lastMove.slice(0, 2)] = { boxShadow: "inset 0 0 0 3px rgba(191,255,86,.75)" };
+  1323→          styles[lastMove.slice(2, 4)] = { boxShadow: "inset 0 0 0 3px rgba(191,255,86,.9)", backgroundColor: "rgba(191,255,86,.22)" };
+  1324→        }
+  1325→        return styles;
+  1326→      })(),
+  1327→      allowDragging: retryMoveIndex !== null,
+  1328→      onPieceDrop: ({ sourceSquare, targetSquare }) => {
+  1329→        if (retryMoveIndex === null || !fullReview || !targetSquare) return false;
+  1330→        const review = fullReview.moves[retryMoveIndex];
+  1331→        try {
+  1332→          const chess = new Chess(fen);
+  1333→          const move = chess.move({ from: sourceSquare, to: targetSquare, promotion: "q" });
+  1334→          if (!move) return false;
+  1335→          const uci = `${move.from}${move.to}${move.promotion || ""}`;
+  1336→          setRetryFeedback(uci === review?.bestMove ? "correct" : "incorrect");
+  1337→        } catch {
+  1338→          return false;
+  1339→        }
+  1340→        return false;
+  1341→      },
+  1342→      boardStyle: {
+  1343→        width: "100%",
+  1344→        height: "100%",
+  1345→        borderRadius: "6px",
+  1346→      },
+  1347→      lightSquareStyle: { backgroundColor: "#dce8e4" },
+  1348→      darkSquareStyle: { backgroundColor: "#627d7a" },
+  1349→    }),
+  1350→    [fen, boardFen, boardOrientation, retryMoveIndex, fullReview, bestMove, uciMoveHistory, previewMove, currentMove, isEngineMovePreview, engineMovePreview]
+  1351→  );
+  1352→
+  1353→  return (
+  1354→    <div className="app-shell">
+  1355→      <header className="app-header">
+  1356→        <div className="app-brand">
+  1357→          <span className="brand-knight" aria-hidden="true">♞</span>
+  1358→          <div>
+  1359→            <p className="eyebrow">ENGINE ROOM</p>
+  1360→            <h1>CHECKMATE<span> / LAB</span></h1>
+  1361→          </div>
+  1362→        </div>
+  1363→        <div className="game-identity" aria-live="polite">
+  1364→          <span className="live-kicker"><i /> {gameInfo ? "GAME REPLAY" : "ANALYSIS STUDIO"}</span>
+  1365→          <strong>{gameInfo ? `${gameInfo.white} vs ${gameInfo.black}` : "Your next great game starts here"}</strong>
+  1366→          <span>{gameInfo ? `${gameInfo.opening} · ${gameInfo.timeClass}` : "Stockfish powered · Precision move review"}</span>
+  1367→          {gameInfo && <b className="identity-result">{gameInfo.result}</b>}
+  1368→        </div>
+  1369→        <form
+  1370→          className="player-search"
+  1371→          ref={searchRef}
+  1372→          onSubmit={(event) => {
+  1373→            event.preventDefault();
+  1374→            fetchGames();
+  1375→          }}
+  1376→        >
+  1377→          <div className="search-controls">
+  1378→            <span className="search-glyph" aria-hidden="true">⌕</span>
+  1379→            <input
+  1380→              id="chess-username"
+  1381→              type="text"
+  1382→              placeholder="Search Chess.com username"
+  1383→              autoComplete="off"
+  1384→              disabled={gamesLoading}
+  1385→              value={username}
+  1386→              aria-controls="game-search-results"
+  1387→              aria-expanded={gamesOpen}
+  1388→              onChange={(event) => {
+  1389→                setUsername(event.target.value);
+  1390→                setGamesOpen(false);
+  1391→                setGames([]);
+  1392→                setSearchError("");
+  1393→              }}
+  1394→            />
+  1395→              <button className="primary-button" type="submit" disabled={gamesLoading}>
+  1396→              {gamesLoading ? "Searching…" : "Find games"}
+  1397→            </button>
+  1398→          </div>
+  1399→          {gamesOpen && (
+  1400→            <div className="game-search-dropdown" id="game-search-results" role="listbox" aria-label="Player games">
+  1401→              <div className="search-dropdown-heading">
+  1402→                <strong>{gamesLoading ? "Searching recent games" : games.length ? `Recent games · ${games.length}` : "Game search"}</strong>
+  1403→                <button type="button" aria-label="Close game results" onClick={() => setGamesOpen(false)}>×</button>
+  1404→              </div>
+  1405→              {gamesLoading ? (
+  1406→                <p className="search-dropdown-message">Fetching the player’s latest Chess.com games…</p>
+  1407→              ) : searchError ? (
+  1408→                <p className="search-dropdown-message search-dropdown-error" role="status">{searchError}</p>
+  1409→              ) : (
+  1410→                <div className="search-game-list">
+  1411→                  {games.map((game, index) => {
+  1412→                    const whiteWon = game.white?.result === "win";
+  1413→                    const blackWon = game.black?.result === "win";
+  1414→                    const resultLabel = whiteWon ? "White won" : blackWon ? "Black won" : "Draw";
+  1415→                    const searchedUsername = username.trim().toLocaleLowerCase();
+  1416→                    const searchedPlayer = [game.white, game.black].find(
+  1417→                      (player) => player?.username?.toLocaleLowerCase() === searchedUsername
+  1418→                    );
+  1419→                    const resultOutcome = searchedPlayer?.result === "win"
+  1420→                      ? "win"
+  1421→                      : searchedPlayer && (whiteWon || blackWon) ? "loss" : "draw";
+  1422→                    const rawRatingChange = searchedPlayer?.rating_change ?? searchedPlayer?.ratingChange;
+  1423→                    const numericRatingChange = Number(rawRatingChange);
+  1424→                    const ratingChange = resultOutcome !== "draw" && rawRatingChange != null && Number.isFinite(numericRatingChange)
+  1425→                      ? `${resultOutcome === "loss" ? "−" : "+"}${Math.abs(numericRatingChange)}`
+  1426→                      : null;
+  1427→                    const resultTooltip = `${resultLabel}${ratingChange ? ` · ${ratingChange} rating` : ""}`;
+  1428→                    const dateLabel = game.end_time ? new Date(game.end_time * 1000).toLocaleDateString() : game.time_class || "Game";
+  1429→                    return (
+  1430→                      <button
+  1431→                        className="search-game-option"
+  1432→                        type="button"
+  1433→                        role="option"
+  1434→                        aria-selected="false"
+  1435→                        key={game.url || index}
+  1436→                        onClick={() => setSelectedGame(game)}
+  1437→                      >
+  1438→                        <span className="search-game-players">
+  1439→                          <strong>{game.white?.username || "White"}</strong>
+  1440→                          <span>vs</span>
+  1441→                          <strong>{game.black?.username || "Black"}</strong>
+  1442→                          <small>{dateLabel} · {game.time_class || "Game"}</small>
+  1443→                        </span>
+  1444→                        <span className={`search-game-result result-${resultOutcome}`} title={resultTooltip} aria-label={resultTooltip}><span className="result-badge" aria-hidden="true">{resultOutcome === "win" ? "+" : resultOutcome === "loss" ? "−" : "="}</span>{ratingChange && resultOutcome !== "draw" && <span className="result-rating">{ratingChange}</span>}<b aria-hidden="true">→</b></span>
+  1445→                      </button>
+  1446→                    );
+  1447→                  })}
+  1448→                </div>
+  1449→              )}
+  1450→            </div>
+  1451→          )}
+  1452→        </form>
+  1453→      </header>
+  1454→
+  1455→      <main className="review-layout">
+  1456→        <section className="board-column" aria-label="Game board and navigation">
+  1457→          <div className="board-card">
+  1458→            <div className="board-heading">
+  1459→              <div>
+  1460→                <p className="eyebrow">BOARD · MOVE {currentMove}</p>
+  1461→                <h2>{getCurrentGameMove()}</h2>
+  1462→              </div>
+  1463→              <div className="board-heading-tools">
+  1464→                <button
+  1465→                  className="board-flip-control"
+  1466→                  type="button"
+  1467→                  onClick={() => setBoardOrientation((orientation) => orientation === "white" ? "black" : "white")}
+  1468→                  aria-label={`Flip board to ${boardOrientation === "white" ? "Black" : "White"}’s perspective`}
+  1469→                  title={`Flip board to ${boardOrientation === "white" ? "Black" : "White"}’s perspective`}
+  1470→                  aria-pressed={boardOrientation === "black"}
+  1471→                >
+  1472→                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v5m0 0H2m5 0 3-3M17 21v-5m0 0h5m-5 0 3 3M6.2 8.8a7 7 0 0 1 11.6-2.4L20 8.5M17.8 15.2a7 7 0 0 1-11.6 2.4L4 15.5" /></svg>
+  1473→                  <span>Flip board</span>
+  1474→                </button>
+  1475→                <span className={`engine-pill ${engineReady ? "is-ready" : ""}`}>
+  1476→                  <span className="status-dot" /> {engineStatus}{engineDepth ? ` · depth ${engineDepth}` : ""}
+  1477→                </span>
+  1478→              </div>
+  1479→            </div>
+  1480→            {retryMoveIndex !== null && (
+  1481→              <div className={`retry-banner ${retryFeedback}`} role="status">
+  1482→                <span>{retryFeedback === "correct" ? "That was Stockfish’s top move." : retryFeedback === "incorrect" ? "Not the top move. Try another legal move." : `Retry ${moveHistory[retryMoveIndex]} — find the stronger move for ${fullReview?.moves[retryMoveIndex]?.color === "w" ? "White" : "Black"}.`}</span>
+  1483→                <button onClick={() => { setRetryMoveIndex(null); setRetryFeedback(""); }}>Exit retry</button>
+  1484→              </div>
+  1485→            )}
+  1486→            <PlayerRail color={topPlayerColor} position="top" player={getPlayerDetails(topPlayerColor)} edgeLabel={getPlayerEdgeLabel(topPlayerColor)} />
+  1487→            <div className="board-stage">
+  1488→              <div className="evaluation-rail" aria-label={`Evaluation ${formatEvaluation(evaluation)}`}>
+  1489→                <span className="eval-rail-value">{formatEvaluation(evaluation)}</span>
+  1490→                <div className="evaluation-track"><i style={{ height: `${evaluation?.type === "mate" ? (evaluation.value > 0 ? 100 : evaluation.value < 0 ? 0 : 50) : Math.max(5, Math.min(95, 50 + (evaluation?.value || 0) / 24))}%` }} /></div>
+  1491→                <span className="eval-rail-stat"><small>LOSS</small><b>{evalLoss === null ? "—" : `${(evalLoss / 100).toFixed(2)}`}</b></span>
+  1492→                <span className="eval-rail-stat"><small>PTS LOST</small><b>{expectedPointLoss === null ? "—" : expectedPointLoss.toFixed(2)}</b></span>
+  1493→              </div>
+  1494→              <div className="board-frame">
+  1495→                <Chessboard options={chessboardOptions} />
+  1496→                {getCurrentMoveIconOverlay()}
+  1497→                {previewMove !== null && <span className="preview-ribbon">PREVIEW · MOVE {previewMove}</span>}
+  1498→                {isEngineMovePreview && <span className="preview-ribbon engine-preview-ribbon">ENGINE MOVE · {engineMovePreview.san}</span>}
+  1499→              </div>
+  1500→            </div>
+  1501→            <PlayerRail color={bottomPlayerColor} position="bottom" player={getPlayerDetails(bottomPlayerColor)} edgeLabel={getPlayerEdgeLabel(bottomPlayerColor)} />
+  1502→            <div className="board-navigation">
+  1503→              <button onClick={() => jumpToMove(0)} disabled={currentMove === 0} aria-label="First move">|◀</button>
+  1504→              <button onClick={previousMove} disabled={currentMove === 0} aria-label="Previous move">◀</button>
+  1505→              <button className="play-control" onClick={() => setIsPlaying((playing) => !playing)} aria-label={isPlaying ? "Pause replay" : "Play replay"}>{isPlaying ? "Ⅱ" : "▶"}</button>
+  1506→              <button onClick={nextMove} disabled={currentMove === fenHistory.length - 1} aria-label="Next move">▶</button>
+  1507→              <button onClick={() => jumpToMove(fenHistory.length - 1)} disabled={currentMove === fenHistory.length - 1} aria-label="Last move">▶|</button>
+  1508→              <span className="move-counter">{String(currentMove).padStart(2, "0")} <i>/</i> {String(fenHistory.length - 1).padStart(2, "0")}</span>
+  1509→            </div>
+  1510→            <div className="game-scrubber" role="group" aria-label="Game timeline">
+  1511→              <input aria-label="Choose move" type="range" min="0" max={Math.max(1, fenHistory.length - 1)} value={currentMove} onChange={(event) => jumpToMove(Number(event.target.value))} style={{ "--progress": `${fenHistory.length > 1 ? currentMove / (fenHistory.length - 1) * 100 : 0}%` }} />
+  1512→              <div className="scrubber-markers" aria-hidden="true">{fullReview?.moves.map((move, index) => <i key={index} style={{ left: `${((index + 1) / Math.max(1, moveHistory.length)) * 100}%`, background: getQualityStyle(move.quality)?.color || "#59605f" }} />)}</div>
+  1513→              <span className="keyboard-hints"><kbd>←</kbd><kbd>→</kbd><small>navigate</small></span>
+  1514→            </div>
+  1515→          </div>
+  1516→        </section>
+  1517→
+  1518→        <aside className="results-column" aria-label="Game analysis and results">
+  1519→          <section className="panel analysis-panel">
+  1520→            <div className="panel-heading">
+  1521→              <div>
+  1522→                <p className="eyebrow">STOCKFISH</p>
+  1523→                <h2>Move review</h2>
+  1524→              </div>
+  1525→              {moveQuality && moveQuality !== "Checking..." && (
+  1526→                <div className="quality-badge">
+  1527→                  <QualityIcon quality={moveQuality} size={28} />
+  1528→                  <strong>{moveQuality}</strong>
+  1529→                </div>
+  1530→              )}
+  1531→            </div>
+  1532→
+  1533→            <div className="recommendation-list">
+  1534→              <button
+  1535→                className={`engine-top-move ${isEngineMovePreview && engineMovePreview.uci === bestMove ? "is-previewing" : ""}`}
+  1536→                type="button"
+  1537→                onClick={toggleEngineMovePreview}
+  1538→                disabled={!bestMove || bestMove === "(none)"}
+  1539→                aria-pressed={isEngineMovePreview && engineMovePreview.uci === bestMove}
+  1540→                aria-label={isEngineMovePreview && engineMovePreview.uci === bestMove ? "Return to the current game position" : `Preview Stockfish's suggested move ${getBestMoveSan(bestMove)} on the board`}
+  1541→              >
+  1542→                <span>ENGINE’S TOP MOVE</span>
+  1543→                <strong>{getBestMoveSan(bestMove)}</strong>
+  1544→                <small>{isEngineMovePreview && engineMovePreview.uci === bestMove ? "Showing on board · click to return" : "Click to preview on board"}</small>
+  1545→              </button>
+  1546→              <details className="best-line-disclosure">
+  1547→                <summary>
+  1548→                  <span>BEST LINE</span>
+  1549→                  <b>{bestLine.length ? `${bestLine.length} engine moves` : "Waiting for Stockfish"}</b>
+  1550→                </summary>
+  1551→                <strong className="best-line">{getBestLineSan()}</strong>
+  1552→              </details>
+  1553→            </div>
+  1554→
+  1555→            <details className="settings-disclosure">
+  1556→              <summary><span>⚙ &nbsp;Engine settings</span><b>Depth {analysisDepth} <i>·</i> Stockfish</b></summary>
+  1557→              <div className="settings-fields">
+  1558→                <label className="depth-control" htmlFor="analysis-depth">
+  1559→                  <span>Search depth</span>
+  1560→                  <select
+  1561→                    id="analysis-depth"
+  1562→                    value={analysisDepth}
+  1563→                    onChange={(event) => {
+  1564→                      if (reviewState.status === "running") cancelFullReview();
+  1565→                      setMoveReviews({});
+  1566→                      setFullReview(null);
+  1567→                      setAnalysisDepth(Number(event.target.value));
+  1568→                    }}
+  1569→                  >
+  1570→                    <option value={8}>Fast · 8</option>
+  1571→                    <option value={12}>Balanced · 12</option>
+  1572→                    <option value={16}>Deep · 16</option>
+  1573→                    <option value={20}>Very deep · 20 (slower)</option>
+  1574→                  </select>
+  1575→                </label>
+  1576→                <p>Higher depth takes longer and may find stronger lines.</p>
+  1577→              </div>
+  1578→            </details>
+  1579→
+  1580→            <div className="depth-meter" aria-label={`Engine depth ${engineDepth || 0} of ${analysisDepth}`}><span>ENGINE DEPTH</span><b>{engineDepth || 0}<i> / {analysisDepth}</i></b><div><i style={{ width: `${Math.min(100, (engineDepth || 0) / analysisDepth * 100)}%` }} /></div></div>
+  1581→          </section>
+  1582→
+  1583→          <section className="panel full-review-panel">
+  1584→            <div className="panel-heading">
+  1585→              <div>
+  1586→                <p className="eyebrow">FULL GAME</p>
+  1587→                <h2>{gameInfo ? `${gameInfo.white} vs ${gameInfo.black}` : "Game Review"}</h2>
+  1588→                <p className="review-subtitle">{gameInfo ? `${gameInfo.opening} · ${gameInfo.date} · ${gameInfo.timeClass}` : "Analyze every move to see the full match report."}</p>
+  1589→              </div>
+  1590→              {gameInfo && <span className="result-tag">{gameInfo.result}</span>}
+  1591→            </div>
+  1592→            <div className="review-actions">
+  1593→              {reviewState.status === "running" ? (
+  1594→                <>
+  1595→                  <button className="primary-button" disabled>Reviewing {reviewState.completed}/{reviewState.total}</button>
+  1596→                  <button className="quiet-button" onClick={cancelFullReview}>Cancel</button>
+  1597→                </>
+  1598→              ) : (
+  1599→                <button className="primary-button review-button" onClick={runFullReview} disabled={!moveHistory.length}>
+  1600→                  {reviewState.status === "complete" ? "Run review again" : "Run full game review"}
+  1601→                </button>
+  1602→              )}
+  1603→              {reviewState.status === "running" && <progress max={reviewState.total} value={reviewState.completed} />}
+  1604→            </div>
+  1605→            {reviewState.status === "error" && <p className="review-error">{reviewState.error}. Try a lower analysis depth or run it again.</p>}
+  1606→            {fullReview ? (
+  1607→              <>
+  1608→                <div className="accuracy-grid">
+  1609→                  <AccuracyCard side="White" accuracy={fullReview.whiteAccuracy} />
+  1610→                  <AccuracyCard side="Black" accuracy={fullReview.blackAccuracy} />
+  1611→                </div>
+  1612→                <p className="accuracy-note">Calculation: top-three matches that preserve or improve mover evaluation ÷ all moves played × 100.</p>
+  1613→                <div className="review-section-heading game-rating-heading"><h3>Estimated game rating</h3><span>Performance this game</span></div>
+  1614→                <div className="game-rating-grid">
+  1615→                  <GameRatingCard side="White" estimate={fullReview.whiteGameRating} />
+  1616→                  <GameRatingCard side="Black" estimate={fullReview.blackGameRating} />
+  1617→                </div>
+  1618→                <p className="game-rating-note">Estimate = game Elo + clamp((4% − average expected-point loss) × 1,600, −400, +200). This app estimate is not Chess.com’s unpublished rating formula.</p>
+  1619→                <div className="review-section-heading"><h3>Game momentum</h3><span>White advantage ↑ · Black advantage ↓</span></div>
+  1620→                <EvaluationGraph points={fullReview.points} currentMove={currentMove} onSelectMove={jumpToMove} />
+  1621→                <details className="report-details">
+  1622→                  <summary>Move breakdown &amp; key moments <span>{fullReview.moves.length} moves · {fullReview.moments.length} moments</span></summary>
+  1623→                  <p className="classification-note">Standard labels use Chess.com’s published expected-points bands with Stockfish WDL as a proxy. Brilliant, Great, and Miss use explicit app rules; Book uses the Lichess ECO database.</p>
+  1624→                  <div className="quality-counts">
+  1625→                {moveQualityCounts.map(({ quality, count }) => <span className="quality-count" key={quality}><QualityIcon quality={quality} size={22} />{quality}<b>{count}</b></span>)}
+  1626→                  </div>
+  1627→                  <div className="review-section-heading moments-heading"><h3>Key moments</h3><span>{fullReview.moments.length}</span></div>
+  1628→                  {fullReview.moments.length ? (
+  1629→                    <div className="moment-list">
+  1630→                      {fullReview.moments.map((moment) => (
+  1631→                        <div className="moment-row" key={moment.index}>
+  1632→                          <button className="moment-item" onClick={() => jumpToMove(moment.index + 1)}>
+  1633→                            <QualityIcon quality={moment.quality} size={23} />
+  1634→                            <span><b>{moment.color === "w" ? "White" : "Black"} · {Math.floor(moment.index / 2) + 1}{moment.color === "w" ? "." : "..."} {moveHistory[moment.index]}</b><small>{moment.quality} · {(moment.expectedPointsLoss * 100).toFixed(0)} expected-point loss</small></span>
+  1635→                            <span className="moment-arrow">→</span>
+  1636→                          </button>
+  1637→                          {["Inaccuracy", "Mistake", "Miss", "Blunder"].includes(moment.quality) && <button className="retry-link" onClick={() => retryMistake(moment.index)}>Retry</button>}
+  1638→                        </div>
+  1639→                      ))}
+  1640→                    </div>
+  1641→                  ) : <p className="empty-state">No major turning points were flagged by this review.</p>}
+  1642→                </details>
+  1643→              </>
+  1644→            ) : reviewState.status === "running" ? (
+  1645→              <p className="review-hint">Stockfish is checking each move in the background. You can keep using the board.</p>
+  1646→            ) : (
+  1647→              <p className="review-hint">The full report includes both accuracy estimates, the evaluation graph, move labels, and key moments.</p>
+  1648→            )}
+  1649→          </section>
+  1650→
+  1651→          <section className="panel moves-panel">
+  1652→            <div className="panel-heading compact-heading">
+  1653→              <div><p className="eyebrow">GAME SCORE</p><h2>Moves</h2></div>
+  1654→              <span className="subtle-count">{moveHistory.length} plies</span>
+  1655→            </div>
+  1656→            {moveHistory.length ? (
+  1657→              <>
+  1658→                <div className="move-list-head" aria-label={`Move list: White ${gameInfo?.white || "White"}, Black ${gameInfo?.black || "Black"}`}><span /> <span title={gameInfo?.white || "White"}>{gameInfo?.white || "White"}</span><span title={gameInfo?.black || "Black"}>{gameInfo?.black || "Black"}</span></div>
+  1659→                <div className="move-list">
+  1660→                  {Array.from({ length: Math.ceil(moveHistory.length / 2) }, (_, rowIndex) => {
+  1661→                    const whiteIndex = rowIndex * 2;
+  1662→                    const blackIndex = whiteIndex + 1;
+  1663→                    const renderMove = (index) => {
+  1664→                      const review = moveReviews[index];
+  1665→                      const selected = currentMove === index + 1;
+  1666→                      return (
+  1667→                        <button
+  1668→                          className={`move-item ${selected ? "is-selected" : ""} ${index % 2 ? "black-move" : "white-move"}`}
+  1669→                          key={`${index}-${moveHistory[index]}`}
+  1670→                          onClick={() => jumpToMove(index + 1)}
+  1671→                          onMouseEnter={() => { setEngineMovePreview(null); setPreviewMove(index + 1); }}
+  1672→                          onMouseLeave={() => setPreviewMove(null)}
+  1673→                          ref={selected ? selectedMoveRef : undefined}
+  1674→                          title={`${Math.floor(index / 2) + 1}${index % 2 ? "..." : "."} ${moveHistory[index]}${review ? ` · ${review.quality}` : ""}`}
+  1675→                          aria-label={`${index % 2 ? "Black" : "White"} move ${Math.floor(index / 2) + 1}: ${moveHistory[index]}${review ? `, ${review.quality}` : ""}`}
+  1676→                          aria-current={selected ? "step" : undefined}
+  1677→                        >
+  1678→                          <span><small className="move-san-number">{index % 2 === 0 ? `${Math.floor(index / 2) + 1}.` : ""}</small>{moveHistory[index]}</span>
+  1679→                          {review && <QualityIcon quality={review.quality} size={24} />}
+  1680→                        </button>
+  1681→                      );
+  1682→                    };
+  1683→                    return (
+  1684→                      <div className="move-pair" key={rowIndex}>
+  1685→                        <span className="move-number">{rowIndex + 1}.</span>
+  1686→                        {renderMove(whiteIndex)}
+  1687→                        {blackIndex < moveHistory.length ? renderMove(blackIndex) : <span className="move-empty" />}
+  1688→                      </div>
+  1689→                    );
+  1690→                  })}
+  1691→                </div>
+  1692→              </>
+  1693→            ) : (
+  1694→              <p className="empty-state">Load one of your recent games to review its moves.</p>
+  1695→            )}
+  1696→          </section>
+  1697→
+  1698→        </aside>
+  1699→      </main>
+  1700→    </div>
+  1701→  );
+  1702→}
+  1703→
+  1704→export default App;
+  1705→
