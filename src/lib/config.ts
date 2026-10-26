@@ -4,7 +4,8 @@ export const SITE = {
   tagline: 'Play. Learn. Forge your game.',
   description:
     'KnightForge is a free online chess platform: realtime multiplayer, computer opponents, puzzles, openings, and Stockfish-powered game review.',
-  githubUrl: 'https://github.com/aaron-samuvel',
+  githubUrl: 'https://github.com/aaron-samuvel/knightforge',
+  githubProfileUrl: 'https://github.com/aaron-samuvel',
   contactEmail: 'support@knightforge.example',
 } as const
 

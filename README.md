@@ -2,6 +2,13 @@
 
 **Free, open online chess — play, learn, and forge your game.**
 
+> [!IMPORTANT]
+> **🔗 View directly:** **[github.com/aaron-samuvel/knightforge](https://github.com/aaron-samuvel/knightforge)**
+> · **Run it live:** `git clone https://github.com/aaron-samuvel/knightforge.git && cd knightforge && make setup && make dev` → open **http://localhost:3000**
+> · **Docker:** `make docker-up` → **http://localhost:3000**
+> · **Demo accounts:** `ada@demo.local` / `bruno@demo.local` / `cleo@demo.local` / `dev@demo.local` — password `knightforge-demo`
+> · **Try Pro Review:** Analysis view → paste a PGN → "Run full review" (Brilliant/Blunder/accuracy per move)
+
 KnightForge is an original chess platform inspired by the capabilities players expect from
 modern chess sites: realtime multiplayer with server-validated moves and clocks, computer
 opponents, private rooms, puzzles, an openings explorer, beginner lessons, Elo ratings,
