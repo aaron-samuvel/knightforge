@@ -80,7 +80,7 @@ flowchart LR
   subgraph Server
     API[Next.js API routes<br/>auth · games · puzzles · profile]
     DB[(SQLite / Postgres via Prisma)]
-    RT[Socket.io game service<br/>matchmaking · rooms · clocks]
+    RT[Socket.io game server<br/>matchmaking · rooms · clocks<br/>embedded via instrumentation.ts]
   end
   UI -- REST/JSON --> API
   UI -- WebSocket --> RT
@@ -88,12 +88,15 @@ flowchart LR
   RT -- 'POST /api/games/finish' --> API
 ```
 
+- **One process by default**: `src/instrumentation.ts` starts the Socket.io
+  server (:3003) inside the Next.js Node process; `mini-services/chess-game`
+  is the equivalent standalone build for split deployments.
 - The **client never decides legality in multiplayer**: it renders optimistic moves locally
-  but the socket service validates every move with chess.js and broadcasts authoritative state.
+  but the socket server validates every move with chess.js and broadcasts authoritative state.
 - **Stockfish runs in your browser** — analysis costs the server nothing and positions
   never leave the device.
-- The game service persists finished games by POSTing to `/api/games/finish` (fire-and-forget,
-  never crashes the realtime service).
+- The realtime server persists finished games by POSTing to `/api/games/finish` (fire-and-forget,
+  never crashes the app).
 
 ## Database schema overview
 
@@ -161,21 +164,44 @@ not absolute judgments.
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.1 (or Node 20 + npm equivalents)
+- [Bun](https://bun.sh) ≥ 1.1 **or** any machine with Docker
 - No external services required for local development
 
-### Commands
+### Option A — one command each (Bun)
+
+```bash
+make setup                 # install deps, create .env, push schema, seed demo data
+make dev                   # web :3000 + realtime :3003 (one process)
+```
+
+Open `http://localhost:3000` and sign in with a demo account
+(`ada@demo.local` / `knightforge-demo`) or register your own.
+
+### Option B — Docker (no host dependencies)
+
+```bash
+docker compose up -d --build
+```
+
+Web UI on `:3000`, realtime on `:3003` (same container), data in the
+`knightforge-db` volume. See `scripts/README.md` for the full guide.
+
+### Manual commands (equivalent)
 
 ```bash
 bun install                 # install dependencies
 cp .env.example .env        # configure environment (see below)
 bun run db:push             # create/update the SQLite database (db/custom.db)
+bun prisma/seed.ts          # optional demo data (idempotent)
 bun run dev                 # Next.js on http://localhost:3000
-cd mini-services/chess-game && bun install && bun run dev   # realtime service on :3003
 ```
 
-The frontend proxies realtime traffic to port 3003 (in production set
-`NEXT_PUBLIC_GAME_SERVER`; the sandbox uses a gateway query param — see `src/hooks/use-chess-game.ts`).
+The realtime Socket.io server starts **automatically inside the Next.js
+process** on port 3003 (`src/instrumentation.ts`) — there is nothing else to
+run. A standalone variant for split deployments lives in
+`mini-services/chess-game`. In production you can either expose both ports or
+set `NEXT_PUBLIC_GAME_SERVER` to point the client at a separately hosted
+realtime service (see `docs/deployment.md`).
 
 ### Environment variables (`.env`)
 

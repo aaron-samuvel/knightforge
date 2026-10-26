@@ -1,6 +1,41 @@
 # Deployment
 
-## Topology on free tiers
+## How the two "servers" actually run
+
+KnightForge has a web app and a realtime (Socket.io) server, but in the default
+setup they run inside **one process**: the realtime server is started by
+`src/instrumentation.ts` (port 3003) inside the Next.js Node process, which
+also serves the app (port 3000). That is what `make dev`, `make start` and the
+Docker image do — one thing to start, one healthcheck.
+
+The original standalone variant is kept at `mini-services/chess-game` for
+hosts where you want to scale the realtime server separately (e.g. a cheap
+VPS or Render service). Both run the same logic.
+
+## Topology options
+
+| Option | Best for | Units |
+|---|---|---|
+| **Docker Compose (recommended)** | Any VPS, home server, offline demo | 1 container (web + realtime), SQLite volume |
+| **Single VPS (make start)** | Full control | node process behind nginx/Caddy |
+| **Vercel + Render split** | Free-tier hosting | Web app on Vercel (serverless), Socket.io on Render |
+
+GitHub Pages **cannot** host this app (no server, no websockets) — it is only
+suitable for a static export, which KnightForge is not.
+
+## Option A — Docker (fastest path to a working deployment)
+
+```bash
+docker compose up -d --build
+# Web UI  → http://localhost:3000   (healthcheck: GET /api/health)
+# Realtime → :3003 in the same container
+# Data persists in the named volume `knightforge-db`
+```
+
+Behind a reverse proxy, forward websockets for `/?XTransformPort=3003` to the
+container's :3003 — see the shipped `Caddyfile` for a working example.
+
+## Option B — Vercel + Render (free tiers)
 
 | Unit | Provider (free) | Notes |
 |---|---|---|
@@ -9,15 +44,11 @@
 | Database | **Supabase / Neon** free Postgres | Swap Prisma datasource; run migrations |
 | Engine analysis | Users' browsers | No server component, no cost |
 
-GitHub Pages **cannot** host this app (no server, no websockets) — it is only suitable for
-a static export, which KnightForge is not.
-
-## Step-by-step
+### Step-by-step
 
 ```bash
 # 0. Verify locally first
-bun run lint && bun run build && bun run start   # smoke-test :3000
-cd mini-services/chess-game && bun index.ts      # smoke-test :3003
+bun run lint && bun run build && bun run start   # web :3000 (realtime starts inside it)
 
 # 1. Database (Supabase example)
 #    Create project → Settings → Database → connection string
@@ -25,7 +56,7 @@ DATABASE_URL="postgresql://...pooler.supabase.com:6543/postgres"
 #    In prisma/schema.prisma set provider = "postgresql", then:
 bun run db:push        # or: bun run db:migrate for reviewable SQL migrations
 
-# 2. Game service on Render
+# 2. Realtime service on Render (standalone variant)
 #    New Web Service → repo → Root Directory: mini-services/chess-game
 #    Build: bun install          Start: bun index.ts
 #    → https://knightforge-chess.onrender.com  (example)
@@ -40,20 +71,26 @@ NEXT_PUBLIC_GAME_SERVER="https://knightforge-chess.onrender.com"
 #    Deploy
 
 # 4. Point the client at the game service
-#    In src/hooks/use-chess-game.ts replace the sandbox gateway URL:
+#    In src/hooks/use-chess-game.ts the sandbox gateway URL becomes:
 io('/?XTransformPort=3003', …)   →   io(process.env.NEXT_PUBLIC_GAME_SERVER, …)
-#    (Read it via next.config env exposure; keep path '/' and CORS as configured.)
+#    (Keep path '/' and CORS as configured.)
 ```
+
+> Note: on serverless hosts (Vercel) the embedded realtime server in
+> `instrumentation.ts` cannot hold websocket connections open — that is why
+> Option B uses the standalone Render service. On any long-running host
+> (Docker, VPS) the embedded server is all you need.
 
 ## Post-deploy verification checklist (do not skip)
 
-1. HTTPS active on both units.
+1. HTTPS active on all units.
 2. Register + login work (check cookies are `Secure` in production).
 3. Two independent browsers complete a live game; refresh mid-game → state persists via PGN
    after completion; reconnect grace handles a dropped tab.
 4. Bot game works; review runs (engine loads from `/engine/*` same-origin).
 5. Puzzles attempt recorded for a signed-in user.
-6. Server logs: no errors; game service persists to `/api/games/finish` (look for its log line).
+6. Server logs: no errors; finished games persist to `/api/games/finish`
+   (look for `Persisted game <id>` in the log).
 
 ## Honest free-tier limits
 

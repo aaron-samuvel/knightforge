@@ -1,0 +1,22 @@
+# --- local artifacts ---
+node_modules
+.next
+.git
+.github
+db
+dev.log
+server.log
+chess-service.log
+*.log
+verify-*.png
+worklog.md
+docs
+examples
+skills
+tests
+scripts
+upload
+download
+.env
+.env.*
+!.env.example

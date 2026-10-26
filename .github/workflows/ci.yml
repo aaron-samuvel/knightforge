@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Lint, schema check & production build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Validate Prisma schema
+        run: bunx prisma validate
+        env:
+          DATABASE_URL: file:./db/ci.db
+
+      - name: Push schema to throwaway SQLite db
+        run: bun run db:push
+        env:
+          DATABASE_URL: file:./db/ci.db
+
+      - name: Seed (smoke test, idempotent)
+        run: |
+          bun prisma/seed.ts
+          bun prisma/seed.ts
+        env:
+          DATABASE_URL: file:./db/ci.db
+
+      - name: Production build (standalone)
+        run: bun run build
+        env:
+          DATABASE_URL: file:./db/ci.db
+          AUTH_SECRET: ci-only-secret-not-used-at-runtime-0123456789abcdef
+
+      - name: Smoke-test the standalone server
+        run: |
+          bun .next/standalone/server.js &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000/api/health > /dev/null; then
+              echo "health check passed"
+              kill $SERVER_PID
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "server did not become healthy in 60s"
+          kill $SERVER_PID
+          exit 1
+        env:
+          DATABASE_URL: file:/tmp/ci-runtime.db
+          AUTH_SECRET: ci-only-secret-not-used-at-runtime-0123456789abcdef
+          HOSTNAME: 127.0.0.1
+          PORT: 3000

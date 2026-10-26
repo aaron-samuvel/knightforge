@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    container_name: knightforge
+    ports:
+      - "3000:3000" # web UI
+      - "3003:3003" # realtime socket server (embedded, see src/instrumentation.ts)
+    environment:
+      # Absolute path — required inside the container (relative paths in
+      # standalone builds resolve unpredictably for SQLite).
+      DATABASE_URL: file:/app/db/custom.db
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-to-a-64-char-random-hex-string}
+      NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-KnightForge}
+      # NEVER enable in production:
+      AUTH_EXPOSE_RESET_TOKEN: ""
+    volumes:
+      - knightforge-db:/app/db
+    restart: unless-stopped
+
+volumes:
+  knightforge-db:
