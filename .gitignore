@@ -55,3 +55,9 @@ server.log
 /skills/
 # verification artifacts
 verify-*.png
+
+# local database
+db/*.db
+*.log
+chess-service.log
+dev.log
