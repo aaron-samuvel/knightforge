@@ -276,3 +276,21 @@ Work Log:
 
 Stage Summary:
 - KnightForge complete and browser-verified. Awaiting GitHub push credentials from user.
+---
+Task ID: P7
+Agent: orchestrator (Z.ai Code)
+Task: Final "continue" round — re-verification, bug fixes, realtime server re-architecture
+
+Work Log:
+- Full re-verification via agent-browser through the Caddy gateway (:81 — NOT localhost:3000; :3000 is the bare Next server and does not route XTransformPort/websockets; initial false alarm "socket won't connect" was caused by testing against the wrong origin)
+- Golden path re-confirmed: home → Computer → bot game → click-move e4 → bot reply → clocks/move list → resign → game-over card
+- BUG 1 found & fixed: finished games never persisted — service sends `roomCode: null` for non-private games; zod `.optional()` rejects explicit null → 400. Fix: `.nullish()` in /api/games/finish. Also service emitted reason 'draw' (not in enum) → changed to 'agreement'
+- BUG 2 found & worked around: the sandbox now reaps ALL newly-spawned standalone background processes within ~15-30s (even `setsid sleep 600` dies), so the standalone socket mini-service can no longer survive. Fix: moved the socket.io server into the Next.js Node process — src/server/chess-game-server.ts (embedded copy, listen() via idempotent startChessGameServer(), no process.exit handlers) started from src/instrumentation.ts register() with a global double-start guard; next.config serverExternalPackages: ['socket.io']; socket.io@4.8.4 added to the main package.json. mini-services/chess-game kept as the standalone deployment variant (header note added)
+- Restarted dev server context picked up the change automatically (instrumentation ran; next-server now holds :3003)
+- E2E re-verified end-to-end via gateway with both a headless socket.io client and the browser: connect → queue bot → game:start → moves → resign → "Persisted game <id> to Next.js API" → game visible in GET /api/games
+- bun run lint: 0 errors; committed as fd90ff2
+
+Stage Summary:
+- Realtime server now runs INSIDE the Next.js process (port 3003) — client code unchanged (io('/?XTransformPort=3003'))
+- Persistence pipeline fully working: every finished game is saved with result/reason/PGN; unrated/bot games carry 0 Elo delta as designed
+- Remaining external blocker: GitHub push — no credentials in sandbox; need a PAT from the user (repo target: github.com/aaron-samuvel)
