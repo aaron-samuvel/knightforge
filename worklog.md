@@ -112,3 +112,151 @@ Work Log:
 
 Stage Summary:
 - All core flows browser-verified. App ready.
+
+---
+Task ID: P1
+Agent: orchestrator (Z.ai Code)
+Task: KnightForge re-platform — deps, full DB schema, config, store
+
+Work Log:
+- Rebranded to KnightForge (configurable via NEXT_PUBLIC_SITE_NAME in src/lib/config.ts, board themes + preference types there too)
+- Installed bcryptjs@3, jose@6 (JWT sessions)
+- Full Prisma schema pushed: User (email/passwordHash/displayName/avatarColor/bio/rating/puzzleRating/prefs JSON), PasswordReset, Game (rated, gameType ranked|bot|private, roomCode, userIds), Puzzle (fen/solution UCI/theme/difficulty/sideToMove), PuzzleAttempt, Friend (pending/accepted/blocked)
+- src/lib/store.ts: zustand app store — view router (View union = production route map), session user, auth modal, roomJoinCode deep link, user preferences persisted to localStorage
+
+## Socket Protocol v2 additions (port 3003, extends v1 contract above)
+Client → Server:
+- `room:create` { name, timeControl, rated: bool, color: 'random'|'white'|'black' } → reply event `room:created` { code, gameId, color }
+- `room:join` { code, name } → success: `game:start` to both (gameType private) / error: `game:error` { message } to joiner
+- `game:draw-offer` { gameId } → `draw:offered` to opponent
+- `game:draw-accept` { gameId } → `game:over` reason 'agreement' + persist (unrated if either side chose unrated)
+- `game:draw-decline` { gameId } → `draw:declined` to offerer
+Server → Client additions:
+- `opponent:status` { gameId, connected: bool }
+- `game:start` payload gains { rated, gameType }
+Persist POST to /api/games/finish gains { rated, gameType, roomCode, whiteUserId?, blackUserId? } — Elo updated ONLY when rated=true and both userIds present.
+
+---
+Task ID: P2-a
+Agent: full-stack-developer (P2-a)
+Task: Credential authentication + profile APIs for KnightForge
+
+Work Log:
+- Appended AUTH_SECRET (64-hex random via openssl) to existing .env; created .env.example with DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_SITE_NAME, NEXT_PUBLIC_GAME_SERVER, AUTH_EXPOSE_RESET_TOKEN placeholders + comments
+- Created src/lib/auth.ts (server-only helpers): jose HS256 JWT signed from AUTH_SECRET (fallback 'knightforge-dev-secret-change-me'), 30-day expiry, cookie 'kf_session'; createSessionToken/verifySessionToken; getSessionUser() uses `await cookies()` (Next 16 async) and never throws; requireUser() alias for route guards; sessionCookieOptions() (httpOnly, sameSite lax, secure in prod, path /, maxAge 30d); toSessionUser() strips passwordHash
+- POST /api/auth/register: zod (email, password min 8, name 3-20 /^[a-z0-9_-]+$/i), bcryptjs 10 rounds, displayName=name, P2002 → 409 ('That email/username is already taken'), sets session cookie, 201 { user }
+- POST /api/auth/login: bcrypt compare, generic 401 'Invalid email or password' (also for accounts without passwordHash), sets cookie, returns { user }
+- POST /api/auth/logout: clears cookie (maxAge 0), { ok: true }
+- GET /api/auth/me: { user: {...} | null } — id, name, displayName, email, avatarColor, bio, rating, puzzleRating, wins, losses, draws, puzzleSolved, puzzleStreak, preferences (raw string)
+- POST /api/auth/forgot-password: creates PasswordReset (crypto randomBytes(16) hex = 32 chars, 1h expiry); ALWAYS { ok: true, message: 'If that email exists, a reset link was sent.' }; returns devResetToken ONLY when AUTH_EXPOSE_RESET_TOKEN=dev (documented in .env.example — no mail server in sandbox)
+- POST /api/auth/reset-password: validates unused+unexpired token, updates passwordHash + marks used in $transaction; { ok: true } or 400 'Invalid or expired reset token'
+- PATCH /api/profile: 401 unauth; zod optional displayName(≤30)/bio(≤200)/avatarColor(/^#[0-9a-fA-F]{6}$/)/preferences(JSON string ≤2KB, JSON.parse validated); returns { user }
+- GET /api/profile/[name]: public profile + recentGames (last 10 by createdAt desc, selected safe fields)
+- Updated /api/games/finish: added rated (default true), gameType (default 'ranked'), roomCode, whiteUserId, blackUserId; added 'agreement' to reason enum (needed by socket draw-accept); Elo only when rated (deltas stored 0 otherwise); W/L/D by userId when present (rated or not), legacy name-upsert with Elo only when rated && no userId; unrated guest rows persist with no stat changes. Regenerated Prisma client + restarted dev server (running process had stale client from before P1 schema push)
+- Smoke-tested via curl: register 201/409/400, login 200/401, me cookie/no-cookie, PATCH profile 200/401/400, public profile 200/404, forgot-password identical for known/unknown email, reset-password ok/reuse-400/new-password login 200, finish unrated-with-ids (deltas 0, WLD counted, rating untouched) and rated-no-ids (Elo −16 applied) — all verified in DB
+- bun run lint: 0 errors
+
+Stage Summary:
+- Files: src/lib/auth.ts, .env (AUTH_SECRET appended), .env.example, src/app/api/auth/{register,login,logout,me,forgot-password,reset-password}/route.ts, src/app/api/profile/route.ts, src/app/api/profile/[name]/route.ts, src/app/api/games/finish/route.ts (modified)
+- Endpoint contracts (as implemented):
+  - POST /api/auth/register — { email, password(≥8), name(3-20, /^[a-z0-9_-]+$/i) } → 201 { user } + kf_session cookie | 400 invalid | 409 email/username taken
+  - POST /api/auth/login — { email, password } → 200 { user } + cookie | 401 { error: 'Invalid email or password' }
+  - POST /api/auth/logout — → 200 { ok: true }, clears cookie
+  - GET /api/auth/me — → 200 { user: { id, name, displayName, email, avatarColor, bio, rating, puzzleRating, wins, losses, draws, puzzleSolved, puzzleStreak, preferences } | null }
+  - POST /api/auth/forgot-password — { email } → always 200 { ok: true, message: 'If that email exists, a reset link was sent.' } (+ { devResetToken } ONLY when AUTH_EXPOSE_RESET_TOKEN=dev)
+  - POST /api/auth/reset-password — { token, password(≥8) } → 200 { ok: true } | 400 invalid/expired/used token
+  - PATCH /api/profile — requires session cookie; { displayName?, bio?, avatarColor?(#rrggbb), preferences?(JSON string ≤2KB) } → 200 { user } | 401 | 400
+  - GET /api/profile/[name] — public → 200 { user: { id, name, displayName, avatarColor, bio, rating, wins, losses, draws, puzzleSolved, createdAt }, recentGames: [last 10 games] } | 404
+  - POST /api/games/finish (updated) — legacy body + { rated?=true, gameType?='ranked', roomCode?, whiteUserId?, blackUserId? } → 201 Game JSON; Elo + rating changes only when rated=true; W/L/D by userId when present (rated or not), name-upsert fallback only when rated && ids absent; reason enum now includes 'agreement'
+
+---
+Task ID: P2-b
+Agent: general-purpose (P2-b)
+Task: Socket service v2 — private rooms, rated flag, draw offers, opponent connection status
+
+Work Log:
+- Extended mini-services/chess-game/index.ts in place (v1 ~590 lines read fully first; all v1 events/flows preserved)
+- Game model gains: rated, gameType ('ranked'|'bot'|'private'), roomCode, pendingDrawOffer {by}, status now includes 'waiting'
+- New state: Map<code, WaitingRoom {game, creatorSocketId, tc, rated, createdAt, expiryTimer}>; 6-char codes from unambiguous alphabet ABCDEFGHJKLMNPQRSTUVWXYZ23456789 (no I/O/0/1), uniqueness checked vs waitingRooms + games.roomCode; rooms auto-expire after 30 min (timer deletes room+game, notifies creator 'Room expired'); creator disconnect while waiting cancels the room
+- room:create {name, timeControl, rated, color}: clamps tc (30..1800 / 0..60), validates name (1-20, fallback Guest), 'random' color resolved at create; Game created immediately with creator as participant, status 'waiting', open side is a placeholder (socketId ''); replies room:created {code, gameId, color} to creator only
+- room:join {code, name}: code uppercased; missing/full/started → game:error 'Room not found or already started' to joiner only; on success fills open color, flips game to active (clocks reset, startedAt/lastMoveAt = now), joins BOTH sockets to the game room, sets sessions.inGameId, emits game:start (with rated + gameType) to each with correct color, emits lobby:stats
+- Draw flow: game:draw-offer (participant check, sets pendingDrawOffer, emits draw:offered {gameId, from: name} to opponent socket); game:draw-accept (must be the offer RECEIVER, finishGame 'draw'/'agreement'); game:draw-decline (receiver only, emits draw:declined {gameId} to offerer); any legal move voids a pending offer
+- opponent:status: on disconnect of a player in an active non-bot game, opponent's socket immediately gets opponent:status {gameId, connected:false}; existing 30s abandonment timer kept; bot-game cleanup and both-gone cleanup unchanged
+- game:reconnect {gameId, name}: works for active non-bot games where a side's socket is gone AND side.name matches; re-binds socketId to that side, clears that side's abandonment timer, joins room, emits game:start-shaped re-sync (fen from live chess instance, clocks, color, opponent, rated, gameType) to the rejoining socket, re-delivers a pending draw:offered if the opponent had offered, and emits opponent:status {connected:true} to the opponent; wrong name / no disconnected seat → game:error
+- rated flows through: ranked games always rated=true/gameType 'ranked' (queue payload's optional rated accepted but does not change ranked); bot games rated=false/gameType 'bot'; private rooms use the room's rated flag/gameType 'private'; game:start payload now includes rated + gameType in ALL modes
+- persistResult POST body now includes rated, gameType, roomCode (private only, else null); whiteUserId/blackUserId omitted as instructed; verified the Next.js API (2-a) accepts the extended body (log shows "Persisted game ... to Next.js API")
+- Restart: port 3003 freed (killed stale pid) and service restarted. NOTE deviation: `bun run dev` (bun --hot) child dies silently in this sandbox ~seconds after start (reproduced twice, no error output), so the service is running via `cd mini-services/chess-game && nohup bun index.ts` instead — same file, same behavior; --hot watch mode simply doesn't survive here
+- Verification via throwaway 2-client socket.io-client script (deleted after run): 24/24 checks passed. First run hit two SCRIPT-side bugs (double `await Promise.all(promise)` → Bun "TypeError: Type error"; move emitted before listener attach) and one test-order bug (black tried to move first) — all fixed in the script, none were server bugs. Regression re-run: ranked pairing (rated=true/ranked), game:state, resign, bot game (rated=false/gameType 'bot', bot replied f5), queue:joined — all pass
+
+Stage Summary:
+- Protocol as implemented (v2 additions, port 3003, path '/'):
+  C→S: room:create {name, timeControl{initial,increment}, rated, color:'random'|'white'|'black'} → S→C room:created {code, gameId, color} (creator only); room:join {code, name} → game:start to both | game:error 'Room not found or already started'; game:draw-offer {gameId} → draw:offered {gameId, from} to opponent; game:draw-accept {gameId} (receiver only) → game:over result 'draw' reason 'agreement' + persist; game:draw-decline {gameId} → draw:declined {gameId} to offerer; game:reconnect {gameId, name} → game:start re-sync (fen/clocks/color/rated/gameType) + opponent:status {connected:true}
+  S→C: opponent:status {gameId, connected} on disconnect/reconnect; game:start payload now always includes rated + gameType ('ranked'|'bot'|'private')
+  Persist POST /api/games/finish gains {rated, gameType, roomCode|null} (private only)
+- Verification results: 24/24 private-room/reconnect checks PASSED (create/join by code, same gameId, rated + gameType 'private', illegal rejoin rejected, e4 game:state to both, draw offer→accept→game:over 'agreement', color preference respected, unrated room flag, opponent:status false/true around disconnect/reconnect, re-sync fen identical to pre-disconnect state, wrong-name reconnect rejected, resign → black by resignation). Regression: ranked pair + move + resign, bot start/reply, queue:joined — all PASS
+- Files changed: mini-services/chess-game/index.ts only (no new deps, no changes to src/, prisma/, main package.json)
+- Service RUNNING on port 3003 (pid via `bun index.ts`; log at chess-service.log)
+
+---
+Task ID: P3-c
+Agent: Z.ai Code (P3-c)
+Task: Full analysis suite — shared engine module, eval graph, best-move arrows, PV display, alternative-line replay, opening identification
+
+Work Log:
+- Read worklog, review-dialog.tsx (fully), game-board.tsx (unmodified), store.ts
+- Created src/lib/engine.ts: extracted Engine class (same-origin Worker('/engine/stockfish.js'), uci→uciok→isready→readyok handshake); analyze(fen, depth) → AnalyzeResult { scoreCp (White POV, mate clamped to ±(10000−100·|mate|)), mate (White POV, signed), bestmove (UCI), pv (UCI moves parsed from last 'info … pv …' line, regex-validated) }; PV parsing + pending-request rejection on worker error (real error states, no fabricated evals); analyzeSequential(fens, depth, onProgress(index,total), shouldStop?) with dedicated engine + cancellation; engineQueue(fen, depth) — singleton worker, promise-chained serialization for ad-hoc jobs, fail-fast 'Engine unavailable in this browser' + disposeEngineQueue(); formatEval ('+1.3' / '+M4'); uciPvToSan (chess.js clone stepping, maxMoves cap); uciToFromTo; deduped toWhitePovCp / classify / accuracyFromLosses from review-dialog; identifyOpening with inline ~16-entry book (King's Pawn/English/Réti/Scandinavian/Sicilian/Caro-Kann/French/King's Gambit/Scotch/Italian/Ruy Lopez/Najdorf/London/QGD/Nimzo-Indian/KID) matched by longest SAN-prefix — no import from openings-data.ts
+- Created src/components/chess/eval-graph.tsx: EvalGraph (SVG viewBox 600×120, preserveAspectRatio none, dark zinc strip bg, emerald area from bottom ∝ White advantage clamped ±8 pawns / mate saturates full height, dashed equality midline, current-ply vertical line + dot, invisible per-ply clickable rects → onSelectPly, responsive h-20/h-24); also exports BestMoveArrow (pointer-events-none absolute SVG overlay sized max-w-[640px] aspect-square centered over a relative GameBoard wrapper; 8×8 viewBox, square centers computed files a→h / rank 8 top, both axes flipped for black orientation, emerald line + triangle head)
+- Created src/components/views/analysis-view.tsx ('use client'): Load panel with Tabs PGN/FEN/Empty + validation (chess.js loadPgn / new Chess(fen) try-catch → inline error); free-play line model {startFen, lineMoves[], cursor} — interactive GameBoard appends SAN moves, moving before the end truncates the future line (chess.js-style), prev/next nav + clickable two-column move list (ScrollArea max-h-64); orientation flip; Stockfish panel: status badge (Idle/Thinking spinner/Ready/Error), depth-15 on-demand analysis via engineQueue, big White-POV eval, best move drawn as BestMoveArrow overlay (auto-cleared when position changes), clickable PV badges → alternative-line replay (prefix written into the line), Copy FEN / Copy PGN (navigator.clipboard + check feedback, PGN gets SetUp/FEN headers when start ≠ initial), destructive Alert on engine failure; opening Badge in header; responsive grid lg:grid-cols-[3fr_2fr] stacking board above engine panel on mobile
+- Refactored src/components/chess/review-dialog.tsx (public props unchanged {open, onOpenChange, result, playerColor}): now uses analyzeSequential from lib/engine (White-POV results direct, no local Engine/toWhitePovCp/classify/accuracy duplicates), same classification + accuracy % + progress bar; ADDED EvalGraph under the move list (evals = before-positions + final, clickable → setCursor); ADDED debounced (350ms) on-demand cursor auto-analysis at depth 14 via engineQueue → BestMoveArrow on the board + eval badge in the nav row; ADDED PV line text under the classification list (eval + SAN PV, spinner while thinking); ADDED opening identification Badge in the dialog title
+- Verified: bun run lint clean for all four files (only remaining project error is in src/components/views/openings-view.tsx — owned by another agent, not touched); npx tsc --noEmit: 0 errors in my files (remaining errors are pre-existing in examples/, mini-services/, page.tsx, skills/); bun runtime sanity test of helpers: identifyOpening ('e4 e5 Nf3 Nc6 Bb5'→C60 Ruy Lopez, Najdorf→B90, unknown→null), formatEval (+1.3/-0.4/+M4/-M3), uciPvToSan, uciToFromTo, White-POV mate conversion (mate 3 for black → −9700) all correct; dev.log shows no errors from my files
+- Stockfish asset check: curl http://localhost:3000/engine/stockfish.js → HTTP 200, 62,385 bytes (stockfish.wasm → 200, 366,900 bytes)
+
+Stage Summary:
+- Files created: src/lib/engine.ts, src/components/chess/eval-graph.tsx, src/components/views/analysis-view.tsx
+- Files modified: src/components/chess/review-dialog.tsx (props/behavior compatible)
+- Engine API: new Engine() / engine.analyze(fen, depth) → { scoreCp: number (White POV, mate = ±(10000−100·n)), mate: number|null (White POV), bestmove: string (UCI), pv: string[] (UCI) }; analyzeSequential(fens, depth, onProgress?, shouldStop?) → AnalyzeResult[]; engineQueue(fen, depth) → Promise<AnalyzeResult> (shared serialized worker); formatEval(cpWhite, mate) → '+1.3'|'+M4'; plus uciPvToSan, uciToFromTo, toWhitePovCp, classify, accuracyFromLosses, identifyOpening
+- AnalysisView component ready for wiring by the shell (store View union untouched per rules); everything client-side, real engine output only, explicit error states
+
+---
+Task ID: P3-b
+Agent: general-purpose (P3-b)
+Task: Openings Explorer view + Learn curriculum view (KnightForge)
+
+Work Log:
+- Created src/lib/openings-data.ts: original seed dataset of 16 classical openings with REAL ECO codes (C60 Ruy Lopez, C50 Italian, B20 Sicilian, C00 French, B10 Caro-Kann, D06 Queen's Gambit, E60 KID, D02 London, B01 Scandinavian, B07 Pirc, A10 English, A05 Réti, C25 Vienna, C44 Ponziani, C47 Four Knights, A80 Dutch); each entry { id, name, eco, moves (SAN line), ideas (original 2-3 sentence description), tags }. NO win-rate/popularity stats anywhere; ideas text written originally.
+- Built src/components/views/openings-view.tsx ('use client'): search box + 8 tag filter chips (All/e4/d4/flank/defense/open/closed/aggressive/beginner); responsive card grid (1/2/3 cols) with name, ECO badge, 2-move preview, tags; click → detail panel with GameBoard (REUSED unmodified) replaying the line: first/prev/play-pause/next/last/reset controls, last-move + check highlighting, clickable SAN move list; auto-play interval (1.4s). FEN + generated PGN display with copy-to-clipboard buttons and feedback. Practice mode (Tabs toggle): user plays book moves themselves on the interactive board (both sides in order), validated against the line with chess.js — wrong move → inline role="alert" error + board auto-undo (GameBoard remount via key), correct run to the end → success status. Personal notes per opening in localStorage ('knightforge-opening-notes') with textarea + Save + "Saved!" feedback. Header carries the label "Seed dataset — 16 classical openings for study".
+- Built src/components/views/learn-view.tsx ('use client'): 8-lesson original beginner curriculum (The Board & Setup, How Pieces Move, Castling/En Passant/Promotion, Check & Checkmate, Basic Tactics fork/pin/skewer/discovered attack, Opening Principles, Endgame Fundamentals K+Q mate/opposition, Chess Notation); each lesson = title + difficulty badge (emerald/amber/rose) + original multi-paragraph explanation + interactive demo boards (GameBoard non-interactive with concept FENs; 12 demo boards total, e.g. castling-ready Italian, exd6-ready en passant, b8=Q promotion, Fool's Mate, Nc7+ fork, Ruy b5 pin, a-file skewer, Nc6+ discovered attack, K+Q mate, opposition). Sidebar Accordion lesson list + Progress bar; completion tracked in localStorage 'knightforge-lesson-progress' with "Mark complete"/undo per lesson; prev/next lesson buttons; collapsible "Chess rules reference" (movement / special rules / notation) at the bottom. All content original — nothing copied from external sites.
+- Validation: throwaway script validate-p3b.ts replayed all 16 SAN lines and parsed all 13 demo FENs with chess.js 1.4.0, plus 5 behavioral sanity checks. Output: 16/16 openings PASS, 13/13 FENs PASS (fool's mate isCheckmate=true, skewer FEN inCheck=true, K+Q mate isCheckmate=true), sanity checks Nc7+ / Nc6+ / exd6 e.p. / b8=Q all legal — ALL CHECKS PASSED. Script deleted after run.
+- Fixed 2 lint issues in my files during development: react-hooks/set-state-in-effect (removed synchronous setState from the auto-play effect) and react-hooks/refs (removed render-time ref write). Auto-play now clamps ply inside the interval callback instead.
+- bun run lint: 0 errors project-wide. bunx tsc --noEmit: 0 errors in my files (remaining errors pre-exist in examples/, mini-services/, skills/, src/app/page.tsx owned by other tasks). dev.log: no runtime errors from my files.
+
+Stage Summary:
+- Files created (ONLY these three): src/lib/openings-data.ts, src/components/views/openings-view.tsx, src/components/views/learn-view.tsx. Nothing else touched (page.tsx / app shell / GameBoard untouched — GameBoard imported and reused as-is).
+- Validation proof: 16/16 opening lines legal SAN (chess.js replay), 13/13 demo FENs legal (incl. mate positions verified as actual mate), 5/5 behavioral sanity checks (Nc7+ fork, Nc6+ discovered, exd6 e.p., b8=Q promotion, Fool's Mate is mate). All PASSED.
+- Integration notes for the shell agent (P3-a/P4): export components are `OpeningsView` and `LearnView` — render them for store views 'openings' and 'learn' (useApp().view / setView). Both are fully self-contained 'use client' components with no props; they manage their own localStorage (keys 'knightforge-opening-notes', 'knightforge-lesson-progress'). Openings view labels itself as a 16-opening seed dataset with no statistics.
+
+---
+Task ID: P3-a
+Agent: full-stack-developer (P3-a)
+Task: Puzzle Training module — validated seed set, API, trainer view
+
+Work Log:
+- Created src/lib/puzzles-data.ts: 18 puzzles — 6 mate-in-1, 6 mate-in-2 (3 UCI plies: user move, FORCED opponent reply, mate), 6 tactics (3 UCI plies, side nets >=2 pawns). Mixed sides (mate2 + tactic include black-to-move). Patterns: back-rank, scholar's finish, smothered (Philidor legacy), Q/R sac deflection, two-rook ladder, knight forks (K+R), pin pile-up, pawn fork on Q+R, Qb3 deflect-capture.
+- Throwaway validation script (scripts-tmp/validate-puzzles.ts, DELETED after pass) asserted per puzzle via chess.js@1.4: (a) FEN loads + round-trips (no silent fallback), (b) declared sideToMove === FEN turn, (c) every solution UCI applies legally in order, (d) mate1: final position isCheckmate; mate2: after ply 1 opponent has EXACTLY 1 legal move AND it equals the scripted reply AND ply 3 isCheckmate; tactic: material balance (P1 N3 B3 R5 Q9) for the solution side improves >= 2 pawns from start to ply 3.
+- Validation run 1: 16/18 pass. Fixed 2 FEN typos (mate2-black-rook-deflection rank8 "r3r1k1" → "3r2k1" — rook was on e8 not d8; tactic-pawn-fork-qr rank7 "pp1q1ppp" → "ppq1rppp" — Q on e7 not c7). Run 2: 18/18 PASS. Script deleted.
+- Lazy seeding: GET /api/puzzles (+ /daily) call ensurePuzzlesSeeded() (src/app/api/puzzles/seed.ts) — upserts the static array into the Puzzle table by id, skipped once table holds all 18 rows.
+- GET /api/puzzles — theme (mate1|mate2|tactic|all, else 400), difficulty (1..5|all, else 400), count (default 10, clamped 1..50) → { puzzles: [...] }; solution INCLUDED by design (training app, client validates with chess.js — documented in code comment).
+- GET /api/puzzles/daily — djb2 hash of UTC YYYY-MM-DD % 18 → stable puzzle of the day → { date, puzzle } (same shape as list items).
+- POST /api/puzzles/attempt — zod { puzzleId, solved, hintsUsed 0..10 default 0 } → guest (no session): { ok, guest: true }; authed: PuzzleAttempt row + puzzleSolved +1 on solve, puzzleStreak increment/reset-0-on-fail, puzzleRating +8 (diff 1-2) / +12 (diff 3-4) / +16 (diff 5), −6 on fail, floor 100 → { ok, puzzleRating, puzzleSolved, puzzleStreak }; 404 unknown puzzle (authed), 400 bad body.
+- src/components/views/puzzles-view.tsx ('use client'): Daily Puzzle card (CalendarDays, theme + difficulty dots, Solved badge, emerald CTA); theme + difficulty Select filters; active puzzle card reusing GameBoard (fen, orientation = sideToMove, interactive gated to user's ply, lastMove, check, turn, onMove(from,to,promotion)); local chess.js validation: correct move advances the sequence (opponent scripted reply auto-plays after 600ms); wrong move → destructive toast "Not the move — try again" + board shake + snap-back, 2nd wrong try → attempt recorded failed, board animates through the solution (900ms/ply) with SAN chips; success → emerald banner + rating delta + Next puzzle; Hint button highlights the expected move's from-square via the lastMove highlight prop (max 2, counts hintsUsed); Skip + Retry buttons; header shows streak/solved/rating from session user, guests get a subtle "Sign in to save progress" line that opens the auth modal; after each attempt POSTs /api/puzzles/attempt and syncs the store user via useApp.getState().setUser. Emerald accents, max-w-3xl centered, p-4/p-6 cards, responsive, no blue/indigo, Lucide icons.
+- bun run lint: exit 0. tsc --noEmit: no errors in my files (remaining are pre-existing in examples/, mini-services/, page.tsx owned by other tasks).
+- curl verified: seed (first call seeded 18 rows), filters, 400s, daily stability (identical md5 twice), guest attempt { ok, guest }, full authed flow via cookie jar: +8 → +12 → fail −6 → streak reset 0, /api/auth/me reflects new stats; test user cleaned from DB afterwards.
+
+Stage Summary:
+- Files: src/lib/puzzles-data.ts, src/app/api/puzzles/route.ts, src/app/api/puzzles/seed.ts, src/app/api/puzzles/daily/route.ts, src/app/api/puzzles/attempt/route.ts, src/components/views/puzzles-view.tsx. Nothing else touched (page.tsx mounting is the orchestrator's job).
+- Validation proof: 18/18 puzzles pass all assertions above (script deleted after passing).
+- Endpoint contracts:
+  - GET /api/puzzles?theme=mate1|mate2|tactic|all&difficulty=1..5|all&count=10 → 200 { puzzles: [{ id, fen, solution, theme, difficulty, sideToMove, description }] } | 400 bad theme/difficulty. Lazily seeds Puzzle table on first hit.
+  - GET /api/puzzles/daily → 200 { date: 'YYYY-MM-DD', puzzle: {same shape} } — deterministic per UTC day.
+  - POST /api/puzzles/attempt { puzzleId, solved, hintsUsed? } → 200 { ok: true, guest: true } (no session) | 200 { ok: true, puzzleRating, puzzleSolved, puzzleStreak } (session) | 400 invalid body | 404 unknown puzzle (authed only).
+- View contract: PuzzlesView is self-contained; export { PuzzlesView } from '@/components/views/puzzles-view'; expects useApp() store (user, setUser via getState, setAuthModal) and GET endpoints above; no props required.

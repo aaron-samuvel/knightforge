@@ -25,6 +25,8 @@ export interface GameStartPayload {
   timeControl: TimeControl
   fen: string
   clocks: Clocks
+  rated?: boolean
+  gameType?: 'ranked' | 'bot' | 'private'
 }
 
 export interface LastMove {
@@ -55,6 +57,7 @@ export interface GameOverPayload {
     | 'stalemate'
     | 'insufficient'
     | 'abandoned'
+    | 'agreement'
     | 'draw'
   winnerName?: string
   loserName?: string
@@ -69,6 +72,8 @@ export interface ActiveGame {
   opponent: { name: string; rating: number }
   playerRating: number
   timeControl: TimeControl
+  rated: boolean
+  gameType: 'ranked' | 'bot' | 'private'
   fen: string
   lastMove: LastMove | null
   turn: Color

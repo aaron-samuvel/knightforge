@@ -9,16 +9,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { getBoardColors, useApp } from '@/lib/store'
+import { playCheckSound, playMoveSound } from '@/lib/sound'
 import type { Color } from '@/lib/chess-types'
 
-const LIGHT = '#ebecd0'
-const DARK = '#739552'
 const HIGHLIGHT = 'rgba(255, 241, 102, 0.55)'
 const CHECK_HIGHLIGHT =
   'radial-gradient(circle, rgba(255,0,0,0.9) 12%, rgba(231,0,0,0.4) 32%, transparent 65%)'
 const MOVE_DOT = 'radial-gradient(circle, rgba(20,30,15,0.28) 18%, transparent 20%)'
 const CAPTURE_RING =
   'radial-gradient(circle, transparent 55%, rgba(20,30,15,0.28) 58%)'
+
+function useBoardTheme() {
+  const themeId = useApp((s) => s.prefs.boardTheme)
+  const soundOn = useApp((s) => s.prefs.sound)
+  return { ...getBoardColors(themeId), soundOn }
+}
 
 const PIECE_TO_UNICODE_PROMO: Record<string, string> = {
   q: '♛',
@@ -50,6 +56,7 @@ export function GameBoard({
   const [displayFen, setDisplayFen] = useState(fen)
   const [selected, setSelected] = useState<Square | null>(null)
   const [pendingPromo, setPendingPromo] = useState<{ from: Square; to: Square } | null>(null)
+  const { light: LIGHT, dark: DARK, soundOn } = useBoardTheme()
   const [syncedFen, setSyncedFen] = useState(fen)
 
   // Sync authoritative fen from the server whenever it changes
@@ -98,9 +105,13 @@ export function GameBoard({
 
   const executeMove = (from: Square, to: Square, promotion?: string) => {
     try {
-      chess.move({ from, to, promotion: promotion ?? 'q' })
+      const move = chess.move({ from, to, promotion: promotion ?? 'q' })
       setDisplayFen(chess.fen())
       setSelected(null)
+      if (soundOn) {
+        if (chess.inCheck()) playCheckSound()
+        else playMoveSound(Boolean(move.captured))
+      }
       onMove(from, to, promotion)
       return true
     } catch {

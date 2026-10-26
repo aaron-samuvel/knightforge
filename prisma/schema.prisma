@@ -1,3 +1,6 @@
+// KnightForge — database schema
+// SQLite in the sandbox; Postgres-compatible (swap datasource provider + url for Supabase/Neon).
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,31 +11,106 @@ datasource db {
 }
 
 model User {
+  id            String   @id @default(cuid())
+  email         String?  @unique // nullable: guest-style accounts created via gameplay may lack email
+  passwordHash  String? // null = local/legacy account without password (cannot sign in until set)
+  name          String   @unique // username, used in games
+  displayName   String?
+  avatarColor   String   @default("#10b981")
+  bio           String?
+  rating        Int      @default(800)
+  puzzleRating  Int      @default(800)
+  wins          Int      @default(0)
+  losses        Int      @default(0)
+  draws         Int      @default(0)
+  puzzleSolved  Int      @default(0)
+  puzzleStreak  Int      @default(0)
+  // JSON blob of UI preferences (board theme, piece set, sound, coordinates, privacy flags)
+  preferences   String   @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  gamesAsWhite   Game[]           @relation("GameWhiteUser")
+  gamesAsBlack   Game[]           @relation("GameBlackUser")
+  puzzleAttempts PuzzleAttempt[]
+  friendsInitiated Friend[]       @relation("FriendRequester")
+  friendsReceived  Friend[]       @relation("FriendAddressee")
+  resetTokens     PasswordReset[]
+}
+
+model PasswordReset {
   id        String   @id @default(cuid())
-  name      String   @unique
-  rating    Int      @default(800)
-  wins      Int      @default(0)
-  losses    Int      @default(0)
-  draws     Int      @default(0)
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Game {
   id               String   @id @default(cuid())
   whiteName        String
   blackName        String
+  whiteUserId      String?
+  blackUserId      String?
   whiteRating      Int      @default(800)
   blackRating      Int      @default(800)
   whiteRatingDelta Int      @default(0)
   blackRatingDelta Int      @default(0)
   result           String // "white" | "black" | "draw"
-  reason           String // "checkmate" | "resignation" | "timeout" | "stalemate" | "insufficient" | "abandoned"
+  reason           String // checkmate | resignation | timeout | stalemate | insufficient | abandoned | agreement
   pgn              String
   moveCount        Int      @default(0)
-  timeControl      String // e.g. "5+0"
+  rated            Boolean  @default(true)
+  gameType         String   @default("ranked") // ranked | bot | private
+  roomCode         String?
+  timeControl      String // "300+0"
   initialSeconds   Int      @default(300)
   incrementSeconds Int      @default(0)
   durationSec      Int      @default(0)
   createdAt        DateTime @default(now())
+
+  whiteUser User? @relation("GameWhiteUser", fields: [whiteUserId], references: [id])
+  blackUser User? @relation("GameBlackUser", fields: [blackUserId], references: [id])
+
+  @@index([createdAt])
+  @@index([whiteUserId])
+  @@index([blackUserId])
+}
+
+model Puzzle {
+  id          String @id @default(cuid())
+  fen         String // position BEFORE the first solution move
+  solution    String // space-separated UCI moves (1 for mate-in-1, 3 for mate-in-2: opponent reply included)
+  theme       String // mate1 | mate2 | tactic
+  difficulty  Int // 1..5
+  sideToMove  String // "w" | "b"
+  description String @default("")
+}
+
+model PuzzleAttempt {
+  id        String   @id @default(cuid())
+  userId    String
+  puzzleId  String
+  solved    Boolean
+  hintsUsed Int      @default(0)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([puzzleId])
+}
+
+model Friend {
+  id          String   @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status      String   @default("pending") // pending | accepted | blocked
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  requester   User     @relation("FriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User     @relation("FriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
 }

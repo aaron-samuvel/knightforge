@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chess, type Move } from 'chess.js'
 import {
   AlertTriangle,
+  BookOpen,
   CheckCheck,
   ChevronLeft,
   ChevronRight,
-  BookOpen,
   Flame,
   Lightbulb,
   Loader2,
@@ -15,6 +15,7 @@ import {
   ThumbsUp,
   XCircle,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -25,11 +26,22 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { GameBoard } from '@/components/chess/game-board'
+import { BestMoveArrow, EvalGraph } from '@/components/chess/eval-graph'
+import {
+  accuracyFromLosses,
+  analyzeSequential,
+  classify,
+  engineQueue,
+  formatEval,
+  identifyOpening,
+  uciPvToSan,
+  uciToFromTo,
+  type Classification,
+} from '@/lib/engine'
 import type { Color, GameOverPayload } from '@/lib/chess-types'
 
-const MATE_CP = 10000
-
-type Classification = 'book' | 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder'
+const CURSOR_ANALYSIS_DEPTH = 14
+const CURSOR_ANALYSIS_DELAY_MS = 350
 
 const CLASS_META: Record<
   Classification,
@@ -56,103 +68,12 @@ interface MoveAnalysis {
   lossCp: number
 }
 
-/** eval in centipawns, WHITE point of view, mate scores clamped to ±MATE_CP */
-function toWhitePovCp(score: { cp?: number; mate?: number } | null, turn: 'w' | 'b'): number {
-  if (!score) return 0
-  if (typeof score.mate === 'number') {
-    const v = MATE_CP - Math.min(Math.abs(score.mate), 50) * 100
-    return turn === 'w' ? (score.mate > 0 ? v : -v) : score.mate > 0 ? -v : v
-  }
-  const cp = score.cp ?? 0
-  return turn === 'w' ? cp : -cp
-}
-
-class Engine {
-  private worker: Worker | null = null
-  private pending: ((v: { score: { cp?: number; mate?: number } | null; bestmove: string }) => void) | null = null
-  private lastScore: { cp?: number; mate?: number } | null = null
-  private ready: Promise<void>
-
-  constructor() {
-    this.ready = new Promise((resolve, reject) => {
-      let worker: Worker
-      try {
-        worker = new Worker('/engine/stockfish.js')
-      } catch (e) {
-        reject(e)
-        return
-      }
-      this.worker = worker
-      const onMessage = (e: MessageEvent) => {
-        const line = typeof e.data === 'string' ? e.data : (e.data?.line ?? '')
-        if (typeof line !== 'string') return
-        if (line.startsWith('uciok')) {
-          worker.postMessage('isready')
-        } else if (line.startsWith('readyok')) {
-          worker.removeEventListener('message', onMessage)
-          worker.addEventListener('message', this.handle)
-          resolve()
-        }
-      }
-      worker.addEventListener('message', onMessage)
-      worker.addEventListener('error', () => reject(new Error('engine failed to load')))
-      worker.postMessage('uci')
-    })
-  }
-
-  private handle = (e: MessageEvent) => {
-    const line = typeof e.data === 'string' ? e.data : (e.data?.line ?? '')
-    if (typeof line !== 'string') return
-    if (line.startsWith('info') && line.includes('score')) {
-      const cpMatch = line.match(/score cp (-?\d+)/)
-      const mateMatch = line.match(/score mate (-?\d+)/)
-      if (cpMatch) this.lastScore = { cp: parseInt(cpMatch[1], 10) }
-      else if (mateMatch) this.lastScore = { mate: parseInt(mateMatch[1], 10) }
-    } else if (line.startsWith('bestmove')) {
-      const best = line.split(' ')[1] ?? ''
-      this.pending?.({ score: this.lastScore, bestmove: best })
-      this.pending = null
-    }
-  }
-
-  async analyze(fen: string, depth: number): Promise<{ score: { cp?: number; mate?: number } | null; bestmove: string }> {
-    await this.ready
-    const worker = this.worker
-    if (!worker) throw new Error('engine not available')
-    return new Promise((resolve) => {
-      this.lastScore = null
-      this.pending = resolve
-      worker.postMessage('position fen ' + fen)
-      worker.postMessage('go depth ' + depth)
-    })
-  }
-
-  destroy() {
-    this.worker?.terminate()
-    this.worker = null
-  }
-}
-
-function classify(lossCp: number, isEngineBest: boolean, ply: number): Classification {
-  if (ply < 4) return 'book'
-  if (isEngineBest || lossCp <= 10) return 'best'
-  if (lossCp <= 30) return 'excellent'
-  if (lossCp <= 90) return 'good'
-  if (lossCp <= 200) return 'inaccuracy'
-  if (lossCp <= 400) return 'mistake'
-  return 'blunder'
-}
-
-function accuracyFromLosses(losses: number[]): number {
-  if (losses.length === 0) return 100
-  const avg = losses.reduce((a, b) => a + b, 0) / losses.length
-  return Math.max(0, Math.min(100, Math.round(103.17 * Math.exp(-avg / 220) - 3.17)))
-}
-
-export function formatEval(cpWhite: number, mate: number | null): string {
-  if (mate !== null) return `${mate > 0 ? '+' : '-'}M${Math.abs(mate)}`
-  const pawns = cpWhite / 100
-  return `${pawns >= 0 ? '+' : ''}${pawns.toFixed(1)}`
+/** on-demand engine result for the cursor position (White POV) */
+interface CursorEval {
+  scoreCp: number
+  mate: number | null
+  bestmove: string
+  pvSan: string[]
 }
 
 interface ReviewDialogProps {
@@ -165,9 +86,11 @@ interface ReviewDialogProps {
 export function ReviewDialog({ open, onOpenChange, result, playerColor }: ReviewDialogProps) {
   const [progress, setProgress] = useState(0)
   const [analyses, setAnalyses] = useState<MoveAnalysis[] | null>(null)
+  const [evals, setEvals] = useState<number[]>([])
   const [engineError, setEngineError] = useState<string | null>(null)
   const [cursor, setCursor] = useState(0)
-  const engineRef = useRef<Engine | null>(null)
+  const [cursorEval, setCursorEval] = useState<CursorEval | null>(null)
+  const [cursorThinking, setCursorThinking] = useState(false)
   const cancelledRef = useRef(false)
 
   const moves = useMemo<{ fenBefore: string; san: string; turn: 'w' | 'b' }[]>(() => {
@@ -198,46 +121,39 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
     }
   }, [moves])
 
+  const opening = useMemo(() => identifyOpening(moves.map((m) => m.san)), [moves])
+
   const runAnalysis = useCallback(async () => {
     if (moves.length === 0) {
       setAnalyses([])
+      setEvals([0])
       return
     }
     setAnalyses(null)
+    setEvals([])
     setEngineError(null)
     setProgress(0)
     cancelledRef.current = false
 
     try {
-      const engine = new Engine()
-      engineRef.current = engine
       const depth = moves.length > 60 ? 10 : 13
-
-      // Evaluate every position (each "before" position + the final one)
-      const evals: { cp: number; mate: number | null; bestmove: string }[] = []
+      // Evaluate every position: each "before" position + the final one.
+      // All results come back White-POV from the shared engine module.
       const fensToEval = [...moves.map((m) => m.fenBefore), finalFen]
-      for (let i = 0; i < fensToEval.length; i++) {
-        if (cancelledRef.current) {
-          engine.destroy()
-          return
-        }
-        const res = await engine.analyze(fensToEval[i], depth)
-        const turn: 'w' | 'b' = i < moves.length ? moves[i].turn : (i % 2 === 0 ? 'w' : 'b')
-        const cpWhite = toWhitePovCp(res.score, turn)
-        evals.push({
-          cp: cpWhite,
-          mate: typeof res.score?.mate === 'number' ? res.score.mate : null,
-          bestmove: res.bestmove,
-        })
-        setProgress(i + 1)
-      }
+      const results = await analyzeSequential(
+        fensToEval,
+        depth,
+        (done) => setProgress(done),
+        () => cancelledRef.current
+      )
+      if (cancelledRef.current) return
 
       const rows: MoveAnalysis[] = moves.map((m, i) => {
-        const before = evals[i]
-        const after = evals[i + 1]
+        const before = results[i]
+        const after = results[i + 1]
         const mover = m.turn // 'w' or 'b'
-        const beforeMoverPov = mover === 'w' ? before.cp : -before.cp
-        const afterMoverPov = mover === 'w' ? after.cp : -after.cp
+        const beforeMoverPov = mover === 'w' ? before.scoreCp : -before.scoreCp
+        const afterMoverPov = mover === 'w' ? after.scoreCp : -after.scoreCp
         const lossCp = Math.max(0, beforeMoverPov - afterMoverPov)
         const engineBest = before.bestmove || ''
         // normalise san to a uci-ish prefix check via verbose replay
@@ -262,9 +178,8 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
         }
       })
 
-      if (!cancelledRef.current) setAnalyses(rows)
-      engine.destroy()
-      engineRef.current = null
+      setAnalyses(rows)
+      setEvals(results.map((r) => r.scoreCp))
     } catch {
       if (!cancelledRef.current) setEngineError('The Stockfish engine could not be loaded in this browser.')
     }
@@ -280,7 +195,7 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
     setWasOpen(false)
   }
 
-  // Kick off analysis when dialog opens; clean up on close.
+  // Kick off analysis when dialog opens; cancel on close.
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => runAnalysis(), 0)
@@ -288,8 +203,6 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
     }
     return () => {
       cancelledRef.current = true
-      engineRef.current?.destroy()
-      engineRef.current = null
     }
   }, [open])
 
@@ -310,6 +223,35 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
     }
   }, [cursor, moves])
 
+  // On-demand engine analysis of the paused cursor position (debounced).
+  useEffect(() => {
+    if (!open || !analyses) return
+    let cancelled = false
+    const t = setTimeout(() => {
+      setCursorThinking(true)
+      engineQueue(cursorFen, CURSOR_ANALYSIS_DEPTH)
+        .then((res) => {
+          if (cancelled) return
+          setCursorEval({
+            scoreCp: res.scoreCp,
+            mate: res.mate,
+            bestmove: res.bestmove,
+            pvSan: uciPvToSan(cursorFen, res.pv, 10),
+          })
+        })
+        .catch(() => {
+          if (!cancelled) setCursorEval(null)
+        })
+        .finally(() => {
+          if (!cancelled) setCursorThinking(false)
+        })
+    }, CURSOR_ANALYSIS_DELAY_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [open, analyses, cursorFen])
+
   const whiteLosses = analyses
     ? analyses.filter((_, i) => moves[i]?.turn === 'w').map((a) => a.lossCp)
     : []
@@ -317,12 +259,19 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
     ? analyses.filter((_, i) => moves[i]?.turn === 'b').map((a) => a.lossCp)
     : []
 
+  const cursorArrow = cursorEval ? uciToFromTo(cursorEval.bestmove) : null
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex flex-wrap items-center gap-2">
             <Flame className="h-5 w-5 text-emerald-600" /> Game Review
+            {opening && (
+              <Badge className="bg-emerald-100 text-emerald-800">
+                Opening: {opening.name} ({opening.eco})
+              </Badge>
+            )}
           </DialogTitle>
           <DialogDescription>
             Powered by Stockfish WASM running locally in your browser — no server cost.
@@ -347,69 +296,106 @@ export function ReviewDialog({ open, onOpenChange, result, playerColor }: Review
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_260px]">
-            <div className="space-y-3">
-              <GameBoard
-                fen={cursorFen}
-                orientation={playerColor}
-                interactive={false}
-                lastMove={cursorLastMove}
-                check={false}
-                turn={cursor < moves.length ? (moves[cursor].turn === 'w' ? 'white' : 'black') : 'white'}
-                onMove={() => undefined}
-              />
-              <div className="flex items-center justify-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => setCursor((c) => Math.max(0, c - 1))} aria-label="Previous move">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="min-w-24 text-center text-sm font-medium">
-                  {cursor === 0 ? 'Start' : cursor >= moves.length ? 'End' : `Move ${Math.ceil(cursor / 2)}`}
-                </span>
-                <Button variant="outline" size="sm" onClick={() => setCursor((c) => Math.min(moves.length, c + 1))} aria-label="Next move">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+          <div className="space-y-3">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_260px]">
+              <div className="space-y-3">
+                <div className="relative">
+                  <GameBoard
+                    fen={cursorFen}
+                    orientation={playerColor}
+                    interactive={false}
+                    lastMove={cursorLastMove}
+                    check={false}
+                    turn={cursor < moves.length ? (moves[cursor].turn === 'w' ? 'white' : 'black') : 'white'}
+                    onMove={() => undefined}
+                  />
+                  <BestMoveArrow move={cursorArrow} orientation={playerColor} />
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setCursor((c) => Math.max(0, c - 1))} aria-label="Previous move">
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="min-w-24 text-center text-sm font-medium">
+                    {cursor === 0 ? 'Start' : cursor >= moves.length ? 'End' : `Move ${Math.ceil(cursor / 2)}`}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => setCursor((c) => Math.min(moves.length, c + 1))} aria-label="Next move">
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  {cursorThinking && <Loader2 className="h-4 w-4 animate-spin text-emerald-600" aria-label="Engine thinking" />}
+                  {cursorEval && !cursorThinking && (
+                    <Badge className="bg-emerald-100 font-mono text-emerald-800">
+                      {formatEval(cursorEval.scoreCp, cursorEval.mate)}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Accuracy summary */}
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">White accuracy</p>
+                    <p className="text-2xl font-bold text-emerald-700">{accuracyFromLosses(whiteLosses)}%</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Black accuracy</p>
+                    <p className="text-2xl font-bold text-emerald-700">{accuracyFromLosses(blackLosses)}%</p>
+                  </div>
+                </div>
               </div>
 
-              {/* Accuracy summary */}
-              <div className="grid grid-cols-2 gap-3 text-center">
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">White accuracy</p>
-                  <p className="text-2xl font-bold text-emerald-700">{accuracyFromLosses(whiteLosses)}%</p>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Black accuracy</p>
-                  <p className="text-2xl font-bold text-emerald-700">{accuracyFromLosses(blackLosses)}%</p>
-                </div>
-              </div>
+              <ScrollArea className="max-h-[420px] rounded-lg border">
+                <ul className="divide-y text-sm">
+                  {analyses.map((a, i) => (
+                    <li key={i}>
+                      <button
+                        className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent ${
+                          cursor === i ? 'bg-accent' : ''
+                        }`}
+                        onClick={() => setCursor(i)}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-6 text-right text-xs text-muted-foreground">
+                            {i % 2 === 0 ? `${Math.floor(i / 2) + 1}.` : '…'}
+                          </span>
+                          <span className="w-12 font-mono font-medium">{a.san}</span>
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CLASS_META[a.classification].className}`}
+                        >
+                          {CLASS_META[a.classification].icon}
+                          {CLASS_META[a.classification].label}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </ScrollArea>
             </div>
 
-            <ScrollArea className="max-h-[420px] rounded-lg border">
-              <ul className="divide-y text-sm">
-                {analyses.map((a, i) => (
-                  <li key={i}>
-                    <button
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent ${
-                        cursor === i ? 'bg-accent' : ''
-                      }`}
-                      onClick={() => setCursor(i)}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="w-6 text-right text-xs text-muted-foreground">
-                          {i % 2 === 0 ? `${Math.floor(i / 2) + 1}.` : '…'}
-                        </span>
-                        <span className="w-12 font-mono font-medium">{a.san}</span>
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CLASS_META[a.classification].className}`}
-                      >
-                        {CLASS_META[a.classification].icon}
-                        {CLASS_META[a.classification].label}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </ScrollArea>
+            {/* Evaluation graph — click to jump to a position */}
+            <EvalGraph evals={evals} currentPly={cursor} onSelectPly={setCursor} />
+
+            {/* Engine PV line for the current position */}
+            <div className="rounded-lg border p-3 text-sm">
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                Engine (depth {CURSOR_ANALYSIS_DEPTH}, White POV)
+              </p>
+              {cursorThinking ? (
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analyzing position…
+                </p>
+              ) : cursorEval ? (
+                <p className="font-mono text-xs leading-relaxed">
+                  <span className="font-semibold text-emerald-700">
+                    {formatEval(cursorEval.scoreCp, cursorEval.mate)}
+                  </span>
+                  {cursorEval.pvSan.length > 0 && (
+                    <span className="text-muted-foreground"> · PV: {cursorEval.pvSan.join(' ')}</span>
+                  )}
+                </p>
+              ) : (
+                <p className="text-muted-foreground">No engine output for this position.</p>
+              )}
+            </div>
           </div>
         )}
       </DialogContent>

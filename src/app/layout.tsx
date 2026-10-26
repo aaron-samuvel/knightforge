@@ -14,18 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ChessCodeCEO Chess — Free Realtime Multiplayer Chess",
+  title: "KnightForge — Free Online Chess: Play, Learn, Review",
   description:
-    "Free realtime multiplayer chess platform: quick matchmaking, chess clocks, bot play and Stockfish game review. Built with Next.js, Socket.io, chess.js and Stockfish WASM.",
-  keywords: ["chess", "multiplayer chess", "realtime chess", "stockfish", "game review", "open source"],
+    "KnightForge is a free online chess platform: realtime multiplayer, computer opponents, private rooms, puzzles, openings and Stockfish-powered game review.",
+  keywords: ["chess", "online chess", "multiplayer chess", "stockfish", "puzzles", "openings", "knightforge"],
   authors: [{ name: "chesscodeceo" }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
   openGraph: {
-    title: "ChessCodeCEO Chess",
-    description: "Free realtime multiplayer chess with Stockfish game review",
-    siteName: "ChessCodeCEO Chess",
+    title: "KnightForge — Free Online Chess",
+    description: "Play, learn, and forge your game. Free forever.",
+    siteName: "KnightForge",
     type: "website",
   },
 };

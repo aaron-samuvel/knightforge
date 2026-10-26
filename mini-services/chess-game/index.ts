@@ -39,10 +39,23 @@ interface Game {
   timeControl: { initial: number; increment: number } // seconds
   incrementMs: number
   initialMs: number
-  status: 'active' | 'finished'
+  status: 'waiting' | 'active' | 'finished'
   isBot: boolean
+  rated: boolean
+  gameType: 'ranked' | 'bot' | 'private'
+  roomCode: string | null
+  pendingDrawOffer: { by: 'white' | 'black' } | null
   startedAt: number
   disconnectTimers: Map<'white' | 'black', NodeJS.Timeout>
+}
+
+interface WaitingRoom {
+  game: Game
+  creatorSocketId: string
+  tc: { initial: number; increment: number }
+  rated: boolean
+  createdAt: number
+  expiryTimer: NodeJS.Timeout
 }
 
 const httpServer = createServer()
@@ -62,6 +75,11 @@ const io = new Server(httpServer, {
 const sessions = new Map<string, PlayerSession>()
 const queue: QueueEntry[] = []
 const games = new Map<string, Game>()
+const waitingRooms = new Map<string, WaitingRoom>()
+
+const ROOM_EXPIRY_MS = 30 * 60 * 1000 // 30 minutes
+// Unambiguous room-code alphabet (no I, O, 0, 1)
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 const tcKey = (tc: { initial: number; increment: number }) => `${tc.initial}+${tc.increment}`
 const activeGameCount = () => {
@@ -76,13 +94,39 @@ const emitLobbyStats = () => {
 
 const generateId = () => Math.random().toString(36).slice(2, 12)
 
+function generateRoomCode(): string {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    let code = ''
+    for (let i = 0; i < 6; i++) {
+      code += ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)]
+    }
+    if (waitingRooms.has(code)) continue
+    let clash = false
+    for (const g of games.values()) {
+      if (g.roomCode === code) {
+        clash = true
+        break
+      }
+    }
+    if (!clash) return code
+  }
+  // Practically unreachable fallback
+  return generateRoomCode()
+}
+
 // ---------------- Game lifecycle ----------------
 
 function createGame(
   white: SideState,
   black: SideState,
   timeControl: { initial: number; increment: number },
-  isBot: boolean
+  isBot: boolean,
+  opts?: {
+    rated?: boolean
+    gameType?: 'ranked' | 'bot' | 'private'
+    roomCode?: string | null
+    status?: 'waiting' | 'active'
+  }
 ): Game {
   const game: Game = {
     id: generateId(),
@@ -93,8 +137,12 @@ function createGame(
     timeControl,
     incrementMs: timeControl.increment * 1000,
     initialMs: timeControl.initial * 1000,
-    status: 'active',
+    status: opts?.status ?? 'active',
     isBot,
+    rated: opts?.rated ?? true,
+    gameType: opts?.gameType ?? (isBot ? 'bot' : 'ranked'),
+    roomCode: opts?.roomCode ?? null,
+    pendingDrawOffer: null,
     startedAt: Date.now(),
     disconnectTimers: new Map(),
   }
@@ -121,6 +169,8 @@ function startPayload(game: Game, color: 'white' | 'black') {
     timeControl: { initial: game.timeControl.initial, increment: game.timeControl.increment },
     fen: game.chess.fen(),
     clocks: liveClocks(game),
+    rated: game.rated,
+    gameType: game.gameType,
   }
 }
 
@@ -201,6 +251,9 @@ function persistResult(game: Game, payload: {
     initialSeconds: game.timeControl.initial,
     incrementSeconds: game.timeControl.increment,
     durationSec: payload.durationSec,
+    rated: game.rated,
+    gameType: game.gameType,
+    roomCode: game.gameType === 'private' ? game.roomCode : null,
   }
   try {
     fetch('http://localhost:3000/api/games/finish', {
@@ -240,7 +293,7 @@ function pairRanked(requester: { socketId: string; name: string; rating: number;
     ? { socketId: requester.socketId, name: requester.name, rating: requester.rating, clockMs: requester.timeControl.initial * 1000 }
     : { socketId: waiting.socketId, name: waiting.name, rating: waiting.rating, clockMs: waiting.timeControl.initial * 1000 }
 
-  const game = createGame(white, black, requester.timeControl, false)
+  const game = createGame(white, black, requester.timeControl, false, { rated: true, gameType: 'ranked' })
 
   const whiteSocket = io.sockets.sockets.get(white.socketId)
   const blackSocket = io.sockets.sockets.get(black.socketId)
@@ -352,6 +405,7 @@ io.on('connection', (socket) => {
     name?: string
     timeControl?: { initial?: number; increment?: number }
     mode?: 'ranked' | 'bot'
+    rated?: boolean // v2: accepted, but ranked games are always rated
   }) => {
     try {
       // validate name
@@ -379,7 +433,7 @@ io.on('connection', (socket) => {
       if (mode === 'bot') {
         const white: SideState = { socketId: socket.id, name, rating: session.rating, clockMs: initial * 1000 }
         const black: SideState = { socketId: 'bot', name: 'Stockfish Bot', rating: 1200, clockMs: initial * 1000 }
-        const game = createGame(white, black, timeControl, true)
+        const game = createGame(white, black, timeControl, true, { rated: false, gameType: 'bot' })
         socket.join(game.id)
         session.inGameId = game.id
         socket.emit('game:start', startPayload(game, 'white'))
@@ -447,6 +501,7 @@ io.on('connection', (socket) => {
       game.lastMoveAt = Date.now()
 
       console.log(`Move ${applied.san} in game ${game.id} by ${mover.name}`)
+      game.pendingDrawOffer = null // any move voids a pending draw offer
       io.to(game.id).emit('game:state', statePayload(game, { from: applied.from, to: applied.to, san: applied.san }))
 
       if (game.chess.isGameOver()) {
@@ -483,6 +538,273 @@ io.on('connection', (socket) => {
     }
   })
 
+  // -------- room:create (v2) --------
+  socket.on('room:create', (data: {
+    name?: string
+    timeControl?: { initial?: number; increment?: number }
+    rated?: boolean
+    color?: 'random' | 'white' | 'black'
+  }) => {
+    try {
+      const session = sessions.get(socket.id)
+      if (!session) return
+
+      let name = typeof data?.name === 'string' ? data.name.trim() : ''
+      if (name.length < 1 || name.length > 20) name = 'Guest'
+
+      // already in a game?
+      if (session.inGameId && games.has(session.inGameId)) {
+        socket.emit('game:error', { message: 'Already in a game' })
+        return
+      }
+
+      const initial = Math.min(1800, Math.max(30, Math.floor(Number(data?.timeControl?.initial) || 300)))
+      const increment = Math.min(60, Math.max(0, Math.floor(Number(data?.timeControl?.increment) || 0)))
+      const tc = { initial, increment }
+      const rated = !!data?.rated
+      const colorPref: 'random' | 'white' | 'black' =
+        data?.color === 'white' || data?.color === 'black' ? data.color : 'random'
+      const creatorColor: 'white' | 'black' =
+        colorPref === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : colorPref
+
+      const code = generateRoomCode()
+      const creator: SideState = { socketId: socket.id, name, rating: session.rating, clockMs: initial * 1000 }
+      const open: SideState = { socketId: '', name: '', rating: 0, clockMs: initial * 1000 }
+
+      const game = createGame(creator, open, tc, false, {
+        rated,
+        gameType: 'private',
+        roomCode: code,
+        status: 'waiting',
+      })
+      if (creatorColor === 'black') {
+        game.white = open
+        game.black = creator
+      }
+
+      const expiryTimer = setTimeout(() => {
+        const room = waitingRooms.get(code)
+        if (!room) return
+        waitingRooms.delete(code)
+        if (room.game.status === 'waiting') {
+          games.delete(room.game.id)
+          const creatorSession = sessions.get(room.creatorSocketId)
+          if (creatorSession) creatorSession.inGameId = undefined
+          const creatorSock = io.sockets.sockets.get(room.creatorSocketId)
+          creatorSock?.emit('game:error', { message: 'Room expired' })
+          console.log(`Waiting room ${code} expired`)
+        }
+      }, ROOM_EXPIRY_MS)
+
+      waitingRooms.set(code, { game, creatorSocketId: socket.id, tc, rated, createdAt: Date.now(), expiryTimer })
+      session.name = name
+      session.inGameId = game.id
+
+      socket.emit('room:created', { code, gameId: game.id, color: creatorColor })
+      console.log(`Private room ${code} created by ${name} (${tcKey(tc)}, ${rated ? 'rated' : 'casual'}, ${creatorColor}) — game ${game.id}`)
+      emitLobbyStats()
+    } catch (err) {
+      console.error('room:create error:', err)
+      socket.emit('game:error', { message: 'Failed to create room' })
+    }
+  })
+
+  // -------- room:join (v2) --------
+  socket.on('room:join', (data: { code?: string; name?: string }) => {
+    try {
+      const session = sessions.get(socket.id)
+      if (!session) return
+
+      const code = String(data?.code ?? '').trim().toUpperCase()
+      const room = code ? waitingRooms.get(code) : undefined
+      const game = room?.game
+      if (!room || !game || game.status !== 'waiting') {
+        socket.emit('game:error', { message: 'Room not found or already started' })
+        return
+      }
+
+      // already in a game?
+      if (session.inGameId && games.has(session.inGameId)) {
+        socket.emit('game:error', { message: 'Already in a game' })
+        return
+      }
+
+      let name = typeof data?.name === 'string' ? data.name.trim() : ''
+      if (name.length < 1 || name.length > 20) name = 'Guest'
+
+      // fill the open color
+      const joinColor: 'white' | 'black' = game.white.socketId === '' ? 'white' : 'black'
+      const joiner = sideFor(game, joinColor)
+      joiner.socketId = socket.id
+      joiner.name = name
+      joiner.rating = session.rating || 1200
+      joiner.clockMs = game.initialMs
+
+      // flip to active
+      game.status = 'active'
+      game.startedAt = Date.now()
+      game.lastMoveAt = Date.now()
+      game.white.clockMs = game.initialMs
+      game.black.clockMs = game.initialMs
+
+      clearTimeout(room.expiryTimer)
+      waitingRooms.delete(code)
+
+      const creatorSocket = io.sockets.sockets.get(game.white.socketId === socket.id ? game.black.socketId : game.white.socketId)
+      socket.join(game.id)
+      creatorSocket?.join(game.id)
+      session.name = name
+      session.inGameId = game.id
+      const creatorSession = sessions.get(creatorSocket?.id ?? '')
+      if (creatorSession) creatorSession.inGameId = game.id
+
+      socket.emit('game:start', startPayload(game, joinColor))
+      creatorSocket?.emit('game:start', startPayload(game, joinColor === 'white' ? 'black' : 'white'))
+      console.log(`Private room ${code} joined by ${name} — game ${game.id} started`)
+      emitLobbyStats()
+    } catch (err) {
+      console.error('room:join error:', err)
+      socket.emit('game:error', { message: 'Failed to join room' })
+    }
+  })
+
+  // -------- game:draw-offer (v2) --------
+  socket.on('game:draw-offer', (data: { gameId?: string }) => {
+    try {
+      const game = data?.gameId ? games.get(data.gameId) : undefined
+      if (!game || game.status !== 'active') {
+        socket.emit('game:error', { message: 'Game not found or finished' })
+        return
+      }
+      let color: 'white' | 'black' | null = null
+      if (game.white.socketId === socket.id) color = 'white'
+      else if (game.black.socketId === socket.id) color = 'black'
+      if (!color) {
+        socket.emit('game:error', { message: 'Not a participant of this game' })
+        return
+      }
+      game.pendingDrawOffer = { by: color }
+      const opp = opponentOf(game, color)
+      const oppSock = io.sockets.sockets.get(opp.socketId)
+      oppSock?.emit('draw:offered', { gameId: game.id, from: sideFor(game, color).name })
+      console.log(`Draw offered by ${sideFor(game, color).name} in game ${game.id}`)
+    } catch (err) {
+      console.error('game:draw-offer error:', err)
+    }
+  })
+
+  // -------- game:draw-accept (v2) --------
+  socket.on('game:draw-accept', (data: { gameId?: string }) => {
+    try {
+      const game = data?.gameId ? games.get(data.gameId) : undefined
+      if (!game || game.status !== 'active') {
+        socket.emit('game:error', { message: 'Game not found or finished' })
+        return
+      }
+      if (!game.pendingDrawOffer) {
+        socket.emit('game:error', { message: 'No pending draw offer' })
+        return
+      }
+      // sender must be the offer receiver (not the offerer)
+      const offererColor = game.pendingDrawOffer.by
+      let color: 'white' | 'black' | null = null
+      if (game.white.socketId === socket.id) color = 'white'
+      else if (game.black.socketId === socket.id) color = 'black'
+      if (!color || color === offererColor) {
+        socket.emit('game:error', { message: 'No pending draw offer to accept' })
+        return
+      }
+      game.pendingDrawOffer = null
+      finishGame(game, 'draw', 'agreement')
+    } catch (err) {
+      console.error('game:draw-accept error:', err)
+    }
+  })
+
+  // -------- game:draw-decline (v2) --------
+  socket.on('game:draw-decline', (data: { gameId?: string }) => {
+    try {
+      const game = data?.gameId ? games.get(data.gameId) : undefined
+      if (!game || game.status !== 'active') {
+        socket.emit('game:error', { message: 'Game not found or finished' })
+        return
+      }
+      if (!game.pendingDrawOffer) {
+        socket.emit('game:error', { message: 'No pending draw offer' })
+        return
+      }
+      const offererColor = game.pendingDrawOffer.by
+      let color: 'white' | 'black' | null = null
+      if (game.white.socketId === socket.id) color = 'white'
+      else if (game.black.socketId === socket.id) color = 'black'
+      if (!color || color === offererColor) {
+        socket.emit('game:error', { message: 'No pending draw offer to decline' })
+        return
+      }
+      game.pendingDrawOffer = null
+      const offerer = sideFor(game, offererColor)
+      const offererSock = io.sockets.sockets.get(offerer.socketId)
+      offererSock?.emit('draw:declined', { gameId: game.id })
+      console.log(`Draw offer declined in game ${game.id}`)
+    } catch (err) {
+      console.error('game:draw-decline error:', err)
+    }
+  })
+
+  // -------- game:reconnect (v2) --------
+  socket.on('game:reconnect', (data: { gameId?: string; name?: string }) => {
+    try {
+      const game = data?.gameId ? games.get(data.gameId) : undefined
+      if (!game || game.status !== 'active' || game.isBot) {
+        socket.emit('game:error', { message: 'Game not found or not active' })
+        return
+      }
+      let name = typeof data?.name === 'string' ? data.name.trim() : ''
+      if (name.length < 1 || name.length > 20) name = 'Guest'
+
+      // find a disconnected slot matching the name
+      let color: 'white' | 'black' | null = null
+      if (game.white.name === name && !io.sockets.sockets.has(game.white.socketId)) color = 'white'
+      else if (game.black.name === name && !io.sockets.sockets.has(game.black.socketId)) color = 'black'
+      if (!color) {
+        socket.emit('game:error', { message: 'No disconnected seat found for this game' })
+        return
+      }
+
+      // clear the abandonment timer
+      const timer = game.disconnectTimers.get(color)
+      if (timer) {
+        clearTimeout(timer)
+        game.disconnectTimers.delete(color)
+      }
+
+      const side = sideFor(game, color)
+      side.socketId = socket.id
+      const session = sessions.get(socket.id)
+      if (session) {
+        session.name = name
+        session.inGameId = game.id
+      }
+      socket.join(game.id)
+
+      // re-sync payload (game:start-shaped)
+      socket.emit('game:start', startPayload(game, color))
+
+      // if the opponent had a pending draw offer, re-notify the rejoiner
+      if (game.pendingDrawOffer && game.pendingDrawOffer.by !== color) {
+        socket.emit('draw:offered', { gameId: game.id, from: opponentOf(game, color).name })
+      }
+
+      const opp = opponentOf(game, color)
+      const oppSock = io.sockets.sockets.get(opp.socketId)
+      oppSock?.emit('opponent:status', { gameId: game.id, connected: true })
+      console.log(`${name} reconnected to game ${game.id} as ${color}`)
+    } catch (err) {
+      console.error('game:reconnect error:', err)
+      socket.emit('game:error', { message: 'Reconnect failed' })
+    }
+  })
+
   // -------- disconnect --------
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`)
@@ -499,6 +821,19 @@ io.on('connection', (socket) => {
     // active game: 30s abandonment grace
     if (session?.inGameId) {
       const game = games.get(session.inGameId)
+      if (game && game.status === 'waiting') {
+        // creator left a private waiting room → cancel it
+        for (const [code, room] of waitingRooms.entries()) {
+          if (room.game.id === game.id) {
+            clearTimeout(room.expiryTimer)
+            waitingRooms.delete(code)
+          }
+        }
+        games.delete(game.id)
+        console.log(`Waiting room for game ${game.id} cancelled (${session.name} left)`)
+        emitLobbyStats()
+        return
+      }
       if (game && game.status === 'active') {
         let color: 'white' | 'black' | null = null
         if (game.white.socketId === socket.id) color = 'white'
@@ -510,6 +845,11 @@ io.on('connection', (socket) => {
             console.log(`Bot game ${game.id} cleaned up (human left)`)
             games.delete(game.id)
           } else {
+            // notify the opponent immediately
+            const opp = opponentOf(game, color)
+            const oppSock = io.sockets.sockets.get(opp.socketId)
+            oppSock?.emit('opponent:status', { gameId: game.id, connected: false })
+
             const timer = setTimeout(() => {
               const g = games.get(game.id)
               if (g && g.status === 'active' && sideFor(g, color!).socketId === socket.id) {
