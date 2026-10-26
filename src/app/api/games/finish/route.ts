@@ -28,7 +28,7 @@ const finishGameSchema = z.object({
   // KnightForge v2 additions
   rated: z.boolean().optional().default(true),
   gameType: z.string().trim().min(1).max(20).optional().default('ranked'),
-  roomCode: z.string().trim().min(1).max(12).optional(),
+  roomCode: z.string().trim().min(1).max(12).nullish(),
   whiteUserId: z.string().trim().min(1).optional(),
   blackUserId: z.string().trim().min(1).optional(),
 })

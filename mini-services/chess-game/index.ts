@@ -1,3 +1,7 @@
+// NOTE: In the local sandbox this standalone daemon is superseded by the
+// embedded copy at src/server/chess-game-server.ts (started via
+// src/instrumentation.ts inside the Next.js process). This file remains the
+// standalone deployment variant for hosts that run separate services.
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { Chess, Move } from 'chess.js'
@@ -387,7 +391,7 @@ function resolveGameOver(game: Game) {
   } else if (c.isInsufficientMaterial()) {
     finishGame(game, 'draw', 'insufficient')
   } else if (c.isThreefoldRepetition() || c.isDraw()) {
-    finishGame(game, 'draw', 'draw')
+    finishGame(game, 'draw', 'agreement')
   }
 }
 
