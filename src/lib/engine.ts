@@ -327,6 +327,51 @@ const OPENING_BOOK: { eco: string; name: string; moves: string }[] = [
   { eco: 'E60', name: "King's Indian Defense", moves: 'd4 Nf6 c4 g6' },
 ]
 
+/**
+ * True when a SAN move line still follows a book opening — i.e. some
+ * OPENING_BOOK entry is a prefix of the line, compared move-by-move in SAN
+ * plies (never by raw characters).
+ */
+export function isBookLine(sanMoves: string[]): boolean {
+  if (sanMoves.length === 0) return false
+  for (const entry of OPENING_BOOK) {
+    const entryMoves = entry.moves.split(' ')
+    if (entryMoves.length > sanMoves.length) continue
+    let matches = true
+    for (let i = 0; i < entryMoves.length; i++) {
+      if (entryMoves[i] !== sanMoves[i]) {
+        matches = false
+        break
+      }
+    }
+    if (matches) return true
+  }
+  return false
+}
+
+/**
+ * Book-move check for the Pro Review: the SAN line so far (including the
+ * played move) follows book when it matches an OPENING_BOOK entry prefix in
+ * either direction — the entry extends the line, or the line extends the
+ * entry. Compared ply-by-ply as SAN tokens, never by raw characters.
+ */
+export function isBookPlyLine(sanMoves: string[]): boolean {
+  if (sanMoves.length === 0) return false
+  for (const entry of OPENING_BOOK) {
+    const entryMoves = entry.moves.split(' ')
+    const n = Math.min(entryMoves.length, sanMoves.length)
+    let matches = true
+    for (let i = 0; i < n; i++) {
+      if (entryMoves[i] !== sanMoves[i]) {
+        matches = false
+        break
+      }
+    }
+    if (matches) return true
+  }
+  return false
+}
+
 /** Match a SAN move list against a small book of common openings (longest prefix wins). */
 export function identifyOpening(sanMoves: string[]): { eco: string; name: string } | null {
   const line = sanMoves.join(' ')

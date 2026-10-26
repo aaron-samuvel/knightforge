@@ -357,3 +357,56 @@ Stage Summary:
   TV game with the built-in Stockfish review; works in-sandbox via Featured
   (username import blocked by provider IP rules here, works from normal hosts).
 - 1 commit on top of P8; docs updated.
+---
+Task ID: P10-a
+Agent: full-stack-developer
+Task: Pro Review engine integration (chess-analyzer full-game review)
+
+Work Log:
+- Read worklog (P9) + reference /tmp/chess-analyzer/frontend/src/App.jsx (lines 628–1077) to
+  understand the review math (expected points, sacrifice exchange search, classification
+  precedence). No code copied — clean TS reimplementation.
+- engine.ts: added exported `isBookPlyLine(sanMoves)` — bidirectional SAN-ply prefix match
+  against OPENING_BOOK (compares SAN tokens per ply, never characters); existing exports untouched.
+- New src/lib/game-review.ts (~690 lines):
+  * `MultiPvEngine` — dedicated reusable Stockfish worker (new Worker('/engine/kf-worker.js'),
+    property-based onmessage/onerror, uci→uciok→isready→readyok handshake, lazy re-boot after
+    timeout/error, destroy()). `analyze(fen, depth, multiPv)` sets `setoption name MultiPV value N`
+    (clamped to legal-move count) before position/go; parses `info depth N multipv K … score cp/mate
+    … pv` lines, ignores lower/upperbound, keeps per-line deepest score + per-depth pv moves;
+    resolves on `bestmove` with {score, topMoves (deepest complete set of lines), alternatives,
+    depths, bestMove}. 30s timeout → terminate worker.
+  * Review math ported with exact constants: WIN_PERCENT_SLOPE 0.00368, sigmoid EP with cp
+    clamp ±3000 (Stockfish 10 has no UCI_ShowWDL → no WDL path), mate = sign·(100000−100·|dist|),
+    `playedExpectedPoints = 1 − EP(after)` POV flip, EP-loss thresholds (.02/.05/.10/.20),
+    brilliant (sacrifice via recursive memoized exchange search, mover max / opp min, net ≥200,
+    moved piece ≥300, playedEP ≥0.5, bestEP <0.95, best-or-near-best), great (playedBest AND
+    line-2 EP loss ≥0.15 only when lines 1&2 reported at equal depth), forced (1 legal move),
+    book (ply <6 AND isBookPlyLine), miss (prev opponent error AND bestEP ≥0.7 AND playedEP
+    ∈[0.5,0.7) AND loss ≥0.1). Terminal after-positions (mate/draw) skip the engine call.
+  * `runFullReview(startFen, sanMoves, depth, {onProgress, shouldStop, baselines})` — one engine
+    instance for the whole run, MultiPV 3 before / MultiPV 1 after per ply, returns
+    {moves: MoveReview[], summary: {white, black, keyMoments}, cancelled}. Accuracy = % of side's
+    moves that are engine top-3 AND preserve mover eval; estimated rating =
+    baseline + clamp(round((0.04 − avgEPL)·1600), −400, +200).
+- New UI: components/chess/quality-badge.tsx (QualityBadge, colored icon chips) and
+  components/chess/pro-review-panel.tsx (presentational: depth Select 10/12/14, run/cancel,
+  Progress bar, completed/total, White/Black accuracy + est-rating cards, quality-count chips,
+  clickable Key Moments, per-move detail line "played vs best + EP/cp loss").
+- analysis-view.tsx: Pro Review state lives in the view (move-list badges share it via
+  reviewByPly map); run/cancel/clear handlers with run-id ref guard; review cleared on load,
+  import hand-off, board move and PV replay; quality badge inline next to each SAN move;
+  ProReviewPanel rendered full-width below the board grid; baseline = store user rating
+  (both colors, 1200 fallback).
+
+Stage Summary:
+- Spec PGN in the task ("…10. Nxe5 Nxe5 11. c4 …") is illegal in chess.js (black has no knight
+  recapture on e5, and c4 is blocked by the Bc4) — verified node-side and in browser; replaced
+  the E2E game with the Légal mate trap (1. e4 e5 2. Nf3 d6 3. Bc4 Bg4 4. Nc3 g6 5. Nxe5 Bxd1
+  6. Bxf7+ Ke7 7. Nd5#, 13 plies, real queen-sac theme).
+- Browser E2E (agent-browser): loaded PGN → Pro Review at depth 10 → "Reviewed 13 moves";
+  White 29% (2/7 top-3, ~1209 est.), Black 17% (1/6, ~1037 est.); chips 2 Great/1 Good/6 Book/
+  1 Forced/1 Inaccuracy/2 Blunder; badges render inline in the move list; Key Moment click
+  (6. Bxf7+) jumps cursor and updates the detail line; 0 console errors.
+- `bun run lint` 0 errors; `tsc --noEmit` clean for all touched files; no route/page/socket
+  changes; no new npm packages.

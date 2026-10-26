@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import {
   Activity,
@@ -24,6 +24,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { GameBoard } from '@/components/chess/game-board'
 import { BestMoveArrow } from '@/components/chess/eval-graph'
+import { ProReviewPanel, type ReviewRunState } from '@/components/chess/pro-review-panel'
+import { QualityBadge } from '@/components/chess/quality-badge'
 import { useApp } from '@/lib/store'
 import {
   engineQueue,
@@ -32,6 +34,11 @@ import {
   uciPvToSan,
   uciToFromTo,
 } from '@/lib/engine'
+import {
+  runFullReview,
+  type MoveReview,
+  type ReviewSummary,
+} from '@/lib/game-review'
 import type { Color } from '@/lib/chess-types'
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
@@ -78,6 +85,12 @@ export function AnalysisView() {
   // clipboard feedback
   const [copied, setCopied] = useState<'fen' | 'pgn' | null>(null)
 
+  // Pro Review (full-game review)
+  const [reviewDepth, setReviewDepth] = useState(12)
+  const [reviewRun, setReviewRun] = useState<ReviewRunState>({ status: 'idle', completed: 0, total: 0 })
+  const [review, setReview] = useState<{ moves: MoveReview[]; summary: ReviewSummary } | null>(null)
+  const reviewRunIdRef = useRef(0)
+
   // Adopt a PGN handed over by the Import view (render-time state adjustment,
   // consumed exactly once per pending value).
   const pendingPgn = useApp((s) => s.pendingAnalysisPgn)
@@ -97,6 +110,10 @@ export function AnalysisView() {
         setCursor(sans.length)
         setOrientation(pendingColor)
         setLoadError(null)
+        // a freshly imported game invalidates any previous Pro Review
+        reviewRunIdRef.current += 1
+        setReview(null)
+        setReviewRun({ status: 'idle', completed: 0, total: 0 })
       }
     } catch {
       setLoadError('The imported game could not be parsed.')
@@ -105,6 +122,12 @@ export function AnalysisView() {
     // triggers React's "setState during render of a different component" warning.
     queueMicrotask(() => useApp.getState().setPendingAnalysisPgn(null))
   }
+
+  const clearReview = useCallback(() => {
+    reviewRunIdRef.current += 1 // cancels a running review
+    setReview(null)
+    setReviewRun({ status: 'idle', completed: 0, total: 0 })
+  }, [])
 
   // Position at the cursor, replayed from startFen through lineMoves.
   const view = useMemo(() => {
@@ -146,6 +169,7 @@ export function AnalysisView() {
 
   const handleLoad = useCallback(() => {
     setLoadError(null)
+    clearReview()
     try {
       if (loadMode === 'pgn') {
         const text = pgnText.trim()
@@ -173,7 +197,7 @@ export function AnalysisView() {
     } catch (e) {
       setLoadError(e instanceof Error && e.message ? e.message : 'Invalid input.')
     }
-  }, [loadMode, pgnText, fenText])
+  }, [loadMode, pgnText, fenText, clearReview])
 
   // Interactive board moves: append to the line; moving before the end
   // truncates the future line (chess.js-style).
@@ -183,14 +207,54 @@ export function AnalysisView() {
         const test = new Chess(view.fen)
         const mv = test.move({ from, to, promotion: promotion ?? 'q' })
         if (!mv) return
+        clearReview()
         setLineMoves((prev) => [...prev.slice(0, cursor), mv.san])
         setCursor(cursor + 1)
       } catch {
         /* illegal move — ignore */
       }
     },
-    [view.fen, cursor]
+    [view.fen, cursor, clearReview]
   )
+
+  const handleRunReview = useCallback(async () => {
+    if (reviewRun.status === 'running' || lineMoves.length === 0) return
+    const runId = reviewRunIdRef.current + 1
+    reviewRunIdRef.current = runId
+    setReviewRun({ status: 'running', completed: 0, total: lineMoves.length })
+    setReview(null)
+    const userRating = useApp.getState().user?.rating
+    try {
+      const result = await runFullReview(startFen, lineMoves, reviewDepth, {
+        shouldStop: () => reviewRunIdRef.current !== runId,
+        onProgress: (completed, total) => setReviewRun({ status: 'running', completed, total }),
+        // the reviewer's rating is the baseline for both colors (which side the
+        // player took is unknown on a generic analysis board; 1200 when signed out)
+        baselines: { white: userRating ?? 1200, black: userRating ?? 1200 },
+      })
+      if (reviewRunIdRef.current !== runId || result.cancelled) return
+      setReview({ moves: result.moves, summary: result.summary })
+      setReviewRun({ status: 'complete', completed: result.moves.length, total: lineMoves.length })
+    } catch (e) {
+      if (reviewRunIdRef.current !== runId) return
+      setReview(null)
+      setReviewRun({
+        status: 'error',
+        completed: 0,
+        total: lineMoves.length,
+        error: e instanceof Error && e.message ? e.message : 'Review failed',
+      })
+    }
+  }, [reviewRun.status, lineMoves, startFen, reviewDepth])
+
+  const handleCancelReview = useCallback(() => {
+    reviewRunIdRef.current += 1
+    setReviewRun((s) => ({ ...s, status: 'idle' }))
+  }, [])
+
+  const jumpToPly = useCallback((ply: number) => {
+    setCursor(ply + 1)
+  }, [])
 
   const handleAnalyze = useCallback(async () => {
     if (thinking) return
@@ -219,10 +283,11 @@ export function AnalysisView() {
       if (!analysis || analysis.fen !== view.fen) return
       const prefix = analysis.pvSan.slice(0, count)
       if (prefix.length === 0) return
+      clearReview()
       setLineMoves((prev) => [...prev.slice(0, cursor), ...prefix])
       setCursor(cursor + prefix.length)
     },
-    [analysis, view.fen, cursor]
+    [analysis, view.fen, cursor, clearReview]
   )
 
   const copyText = useCallback(async (text: string, which: 'fen' | 'pgn') => {
@@ -238,6 +303,12 @@ export function AnalysisView() {
   const arrow = analysis && analysis.fen === view.fen ? uciToFromTo(analysis.bestmove) : null
   const status = STATUS_META[engineStatus]
   const atEnd = cursor === lineMoves.length
+
+  const reviewByPly = useMemo(() => {
+    const map = new Map<number, MoveReview>()
+    for (const m of review?.moves ?? []) map.set(m.ply, m)
+    return map
+  }, [review])
 
   return (
     <div className="space-y-6">
@@ -363,17 +434,21 @@ export function AnalysisView() {
               {Array.from({ length: Math.ceil(lineMoves.length / 2) }).map((_, row) => {
                 const wIdx = row * 2
                 const bIdx = row * 2 + 1
-                const cell = (idx: number, san: string) => (
-                  <button
-                    key={idx}
-                    className={`rounded px-2 py-0.5 text-left font-mono hover:bg-accent ${
-                      cursor === idx + 1 ? 'bg-accent font-semibold' : ''
-                    }`}
-                    onClick={() => setCursor(idx + 1)}
-                  >
-                    {san}
-                  </button>
-                )
+                const cell = (idx: number, san: string) => {
+                  const moveReview = reviewByPly.get(idx)
+                  return (
+                    <button
+                      key={idx}
+                      className={`flex items-center gap-1 rounded px-2 py-0.5 text-left font-mono hover:bg-accent ${
+                        cursor === idx + 1 ? 'bg-accent font-semibold' : ''
+                      }`}
+                      onClick={() => setCursor(idx + 1)}
+                    >
+                      <span>{san}</span>
+                      {moveReview && <QualityBadge quality={moveReview.quality} />}
+                    </button>
+                  )
+                }
                 return (
                   <div key={row} className="col-span-3 grid grid-cols-subgrid">
                     <span className="py-0.5 text-right text-xs text-muted-foreground">{row + 1}.</span>
@@ -496,6 +571,19 @@ export function AnalysisView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Pro Review — full-game classification */}
+      <ProReviewPanel
+        hasMoves={lineMoves.length > 0}
+        depth={reviewDepth}
+        onDepthChange={setReviewDepth}
+        run={reviewRun}
+        review={review}
+        cursor={cursor}
+        onRun={handleRunReview}
+        onCancel={handleCancelReview}
+        onJumpToPly={jumpToPly}
+      />
     </div>
   )
 }
