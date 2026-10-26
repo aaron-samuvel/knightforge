@@ -260,3 +260,19 @@ Stage Summary:
   - GET /api/puzzles/daily → 200 { date: 'YYYY-MM-DD', puzzle: {same shape} } — deterministic per UTC day.
   - POST /api/puzzles/attempt { puzzleId, solved, hintsUsed? } → 200 { ok: true, guest: true } (no session) | 200 { ok: true, puzzleRating, puzzleSolved, puzzleStreak } (session) | 400 invalid body | 404 unknown puzzle (authed only).
 - View contract: PuzzlesView is self-contained; export { PuzzlesView } from '@/components/views/puzzles-view'; expects useApp() store (user, setUser via getState, setAuthModal) and GET endpoints above; no props required.
+
+---
+Task ID: P4-P6
+Agent: orchestrator (Z.ai Code)
+Task: Frontend integration, E2E verification, docs, git
+
+Work Log:
+- use-chess-game v2 (rooms/draw/reconnect/rated), play-view (3 modes), app-shell (nav+auth modal+deep links), home/dashboard/leaderboard/profile/legal views, sound engine, board themes
+- Fixed engine stall root cause: dev instrumentation breaks addEventListener-based worker listeners → switched to onmessage/onerror properties + same-origin kf-worker.js wrapper; verified analyze() returns real evals (scoreCp 92, d2d4, PV)
+- Fixed dashboard spectator outcome bug; removed stale branding metadata
+- Browser E2E: register → bot game → resign → review (B00 ID, accuracy) → puzzle solved (rating 808, streak 1) → openings/learn/analysis (+0.7, arrow, PV) → private room create FSRMZP → deep-link join in 2nd tab → live rated game → mobile 390px
+- Docs: README + docs/{requirements,architecture,database,api,testing,deployment,security,roadmap}.md + .env.example
+- Git: 3 commits, secrets/db/logs/screenshots excluded
+
+Stage Summary:
+- KnightForge complete and browser-verified. Awaiting GitHub push credentials from user.
