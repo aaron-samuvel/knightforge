@@ -1,0 +1,40 @@
+projects:
+  - name: knightforge
+    environments:
+      - name: production
+        services:
+          - type: web
+            name: knightforge-web
+            runtime: docker
+            plan: free
+            dockerfilePath: ./Dockerfile
+            dockerContext: .
+            healthCheckPath: /api/health
+            autoDeployTrigger: commit
+            envVars:
+              - key: DATABASE_URL
+                value: file:/app/db/custom.db
+              - key: AUTH_SECRET
+                generateValue: true
+              - key: NEXT_PUBLIC_SITE_NAME
+                value: KnightForge
+              - key: NEXT_PUBLIC_GAME_SERVER
+                fromService:
+                  type: web
+                  name: knightforge-chess
+                  envVarKey: RENDER_EXTERNAL_URL
+
+          - type: web
+            name: knightforge-chess
+            runtime: docker
+            plan: free
+            dockerfilePath: ./mini-services/chess-game/Dockerfile
+            dockerContext: .
+            autoDeployTrigger: commit
+            envVars:
+              - key: KNIGHTFORGE_WEB_URL
+                fromService:
+                  type: web
+                  name: knightforge-web
+                  envVarKey: RENDER_EXTERNAL_URL
+

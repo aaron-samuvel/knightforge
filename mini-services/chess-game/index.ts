@@ -7,10 +7,10 @@ import { Server, Socket } from 'socket.io'
 import { Chess, Move } from 'chess.js'
 
 // ============================================================
-// Chess game mini-service — port 3003 (hardcoded, do not change)
+// Chess game mini-service — port 3003 locally; Render supplies PORT.
 // ============================================================
 
-const PORT = 3003
+const PORT = Number(process.env.PORT) || 3003
 
 interface PlayerSession {
   socketId: string
@@ -260,7 +260,8 @@ function persistResult(game: Game, payload: {
     roomCode: game.gameType === 'private' ? game.roomCode : null,
   }
   try {
-    fetch('http://localhost:3000/api/games/finish', {
+    const appUrl = (process.env.KNIGHTFORGE_WEB_URL || 'http://localhost:3000').replace(/\/+$/, '')
+    fetch(`${appUrl}/api/games/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -908,7 +909,7 @@ setInterval(() => {
 
 // ---------------- Listen ----------------
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Chess game server listening on port ${PORT}`)
 })
 
@@ -927,3 +928,4 @@ process.on('SIGINT', () => {
     process.exit(0)
   })
 })
+

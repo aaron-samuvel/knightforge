@@ -60,7 +60,7 @@ export function useChessGame(): UseChessGameReturn {
   const [opponentConnected, setOpponentConnected] = useState(true)
 
   useEffect(() => {
-    const socket = io('/?XTransformPort=3003', {
+    const socket = io(process.env.NEXT_PUBLIC_GAME_SERVER || '/?XTransformPort=3003', {
       transports: ['websocket', 'polling'],
       forceNew: true,
       reconnection: true,
@@ -312,3 +312,4 @@ export function liveClock(sync: ClockSync | null, side: Color): number {
   if (!sync.running || sync.turn !== side) return Math.max(0, base)
   return Math.max(0, base - (Date.now() - sync.at))
 }
+

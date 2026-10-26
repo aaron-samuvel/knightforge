@@ -1,5 +1,7 @@
 # ♞ KnightForge
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aaron-samuvel/knightforge)
+
 **Free, open online chess — play, learn, and forge your game.**
 
 > [!IMPORTANT]
@@ -317,3 +319,4 @@ Honest list — nothing here is claimed to be complete if it isn't:
   the `public/engine/` files are distributed under their upstream licence (see
   `public/engine/` source package). **shadcn/ui**, **Tailwind CSS**, **Socket.io**,
   **Prisma**, **jose**, **bcryptjs** — their respective open-source licences.
+
