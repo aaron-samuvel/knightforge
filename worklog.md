@@ -294,3 +294,36 @@ Stage Summary:
 - Realtime server now runs INSIDE the Next.js process (port 3003) — client code unchanged (io('/?XTransformPort=3003'))
 - Persistence pipeline fully working: every finished game is saved with result/reason/PGN; unrated/bot games carry 0 Elo delta as designed
 - Remaining external blocker: GitHub push — no credentials in sandbox; need a PAT from the user (repo target: github.com/aaron-samuvel)
+---
+Task ID: P8
+Agent: orchestrator (Z.ai Code)
+Task: Portability & local-environment kit (Docker, scripts, seed, CI, docs)
+
+Work Log:
+- Audited repo: no CI, no Docker, no helper scripts, no seed → built the full kit
+- Dockerfile: 3-stage (deps → build → runtime), oven/bun images, standalone output,
+  non-root user, HEALTHCHECK via /api/health, EXPOSE 3000+3003; .dockerignore added
+- docker-compose.yml: single service, named volume knightforge-db at /app/db
+  (absolute DATABASE_URL — required for SQLite in standalone builds)
+- scripts/: setup.sh (bun check, install, .env generation w/ random AUTH_SECRET,
+  db generate+push, seed), dev.sh (db push + dev), start.sh (build + start), README.md
+- prisma/seed.ts: idempotent — 4 demo accounts (bcrypt, password knightforge-demo)
+  + 5 finished games with real K=32 Elo deltas; re-run detection via game count.
+  Ran twice: 4 users/5 games then "already seeded — skipped". Demo login verified
+  via /api/auth/login + /api/auth/me with cookie jar
+- .github/workflows/ci.yml: bun install → lint → prisma validate → db push (ci.db)
+  → double-seed smoke → production build → standalone server /api/health smoke test
+- Makefile: setup/dev/lint/db-push/seed/db-reset/build/start/docker-up/docker-down
+- package.json: added db:seed; .env.example documented the embedded realtime server
+- docs/deployment.md rewritten: topology table (Docker default / VPS / Vercel+Render),
+  Docker quick start, serverless caveat for the embedded socket server
+- README.md: new Installation (make setup / docker compose / manual), architecture
+  diagram updated to show the embedded Socket.io server
+- Verified: make lint (0 errors), make seed, bash -n all scripts, CI YAML parses,
+  browser: leaderboard renders seeded ada/bruno/cleo with medals + W/L/D (screenshot)
+
+Stage Summary:
+- The project is now fully portable: `make setup && make dev` or `docker compose up -d --build`
+  reproduce the whole platform anywhere
+- Demo accounts: ada|bruno|cleo|dev @demo.local, password knightforge-demo
+- Remaining external blocker: GitHub push needs a PAT from the user (github.com/aaron-samuvel)
