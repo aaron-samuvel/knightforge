@@ -410,3 +410,27 @@ Stage Summary:
   (6. Bxf7+) jumps cursor and updates the detail line; 0 console errors.
 - `bun run lint` 0 errors; `tsc --noEmit` clean for all touched files; no route/page/socket
   changes; no new npm packages.
+---
+Task ID: P10
+Agent: orchestrator (Z.ai Code)
+Task: GitHub push + chess-analyzer Pro Review integration verification & release
+
+Work Log:
+- Resolved GitHub PAT issues (workflow scope) via classic token from user.
+- Pushed full repo (10 commits) to github.com/aaron-samuvel/knightforge, main @ 240b70f; CI run queued.
+- Cloned & audited ram-4723/chess-analyzer: unique remaining value = full-game
+  review algorithm (expected-points model, MultiPV top-3, brilliant sacrifice
+  walk, great/miss rules, accuracy %, rating estimate). Import side already
+  covered by P9.
+- Dispatched P10-a (full-stack-developer): native TS reimplementation
+  (no code copy — repo unlicensed): src/lib/game-review.ts (MultiPvEngine +
+  runFullReview), pro-review-panel.tsx, quality-badge.tsx, engine.ts
+  isBookPlyLine, analysis-view wiring.
+- Independent browser E2E: Légal mate PGN → depth review → 13 moves classified
+  (Nxe5=Brilliant queen sac correct, Bxd1=Blunder, Bxf7+=Great), key-moment
+  jump works, 0 console errors; lint 0 errors.
+- Committed 6db2cef and pushed to GitHub.
+
+Stage Summary:
+- KnightForge public on GitHub with CI; Pro Review feature live in Analysis
+  view. chess-analyzer integration complete (import P9 + review P10).
