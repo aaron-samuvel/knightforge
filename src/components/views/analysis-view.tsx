@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { GameBoard } from '@/components/chess/game-board'
 import { BestMoveArrow } from '@/components/chess/eval-graph'
+import { useApp } from '@/lib/store'
 import {
   engineQueue,
   formatEval,
@@ -76,6 +77,34 @@ export function AnalysisView() {
 
   // clipboard feedback
   const [copied, setCopied] = useState<'fen' | 'pgn' | null>(null)
+
+  // Adopt a PGN handed over by the Import view (render-time state adjustment,
+  // consumed exactly once per pending value).
+  const pendingPgn = useApp((s) => s.pendingAnalysisPgn)
+  const pendingColor = useApp((s) => s.pendingAnalysisColor)
+  const [adoptedPendingPgn, setAdoptedPendingPgn] = useState<string | null>(null)
+  if (pendingPgn && pendingPgn !== adoptedPendingPgn) {
+    setAdoptedPendingPgn(pendingPgn)
+    try {
+      const c = new Chess()
+      c.loadPgn(pendingPgn)
+      const sans = c.history()
+      if (sans.length > 0) {
+        setLoadMode('pgn')
+        setPgnText(pendingPgn)
+        setStartFen(START_FEN)
+        setLineMoves(sans)
+        setCursor(sans.length)
+        setOrientation(pendingColor)
+        setLoadError(null)
+      }
+    } catch {
+      setLoadError('The imported game could not be parsed.')
+    }
+    // Clear outside the render phase — setting store state during render
+    // triggers React's "setState during render of a different component" warning.
+    queueMicrotask(() => useApp.getState().setPendingAnalysisPgn(null))
+  }
 
   // Position at the cursor, replayed from startFen through lineMoves.
   const view = useMemo(() => {

@@ -12,6 +12,8 @@ export type View =
   | 'puzzles'
   | 'openings'
   | 'learn'
+  | 'analysis'
+  | 'import'
   | 'dashboard'
   | 'leaderboard'
   | 'profile'
@@ -42,6 +44,12 @@ interface AppState {
   /** hash-based deep link, e.g. #room=ABCD12 */
   roomJoinCode: string | null
   setRoomJoinCode: (code: string | null) => void
+  /** PGN handed to the Analysis view by the Import view (consumed once) */
+  pendingAnalysisPgn: string | null
+  setPendingAnalysisPgn: (pgn: string | null) => void
+  /** Board orientation for the imported game (side of the searched player) */
+  pendingAnalysisColor: 'white' | 'black'
+  setPendingAnalysisColor: (c: 'white' | 'black') => void
 
   user: SessionUser | null
   setUser: (u: SessionUser | null) => void
@@ -73,6 +81,10 @@ export const useApp = create<AppState>((set, get) => ({
   },
   roomJoinCode: null,
   setRoomJoinCode: (code) => set({ roomJoinCode: code }),
+  pendingAnalysisPgn: null,
+  setPendingAnalysisPgn: (pgn) => set({ pendingAnalysisPgn: pgn }),
+  pendingAnalysisColor: 'white',
+  setPendingAnalysisColor: (c) => set({ pendingAnalysisColor: c }),
 
   user: null,
   setUser: (u) => set({ user: u }),

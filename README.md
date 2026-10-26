@@ -160,6 +160,17 @@ Inaccuracy ≤200; Mistake ≤400; Blunder >400) → lichess-style accuracy form
 come from the engine; nothing is simulated. Classifications are engine-based estimates,
 not absolute judgments.
 
+## Third-party attributions
+
+KnightForge is independently built and is not affiliated with any commercial
+chess platform. The **Import Games** feature (public games from Lichess /
+Chess.com, analyzed with the built-in engine) was inspired by the open-source
+[chess-analyzer](https://github.com/ram-4723/chess-analyzer) project and is
+reimplemented natively for Next.js. Public APIs used: the [Chess.com
+Published-Data API](https://www.chess.com/news/view/published-data-api) and
+the [Lichess API](https://lichess.org/api) — read-only, cached, and limited to
+public data. Full notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Installation
 
 ### Prerequisites

@@ -6,6 +6,7 @@ import {
   BookOpen,
   Bot,
   Crown,
+  Download,
   Flame,
   GraduationCap,
   Home,
@@ -41,6 +42,7 @@ import { PuzzlesView } from '@/components/views/puzzles-view'
 import { OpeningsView } from '@/components/views/openings-view'
 import { LearnView } from '@/components/views/learn-view'
 import { AnalysisView } from '@/components/views/analysis-view'
+import { ImportView } from '@/components/views/import-view'
 import { DashboardView } from '@/components/views/dashboard-view'
 import { LeaderboardView } from '@/components/views/leaderboard-view'
 import { ProfileView } from '@/components/views/profile-view'
@@ -52,6 +54,7 @@ const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; auth?: bool
   { view: 'computer', label: 'Computer', icon: <Bot className="h-4 w-4" /> },
   { view: 'friend', label: 'Play a Friend', icon: <Users className="h-4 w-4" /> },
   { view: 'analysis', label: 'Analysis', icon: <Lightbulb className="h-4 w-4" /> },
+  { view: 'import', label: 'Import', icon: <Download className="h-4 w-4" /> },
   { view: 'puzzles', label: 'Puzzles', icon: <Puzzle className="h-4 w-4" /> },
   { view: 'openings', label: 'Openings', icon: <BookOpen className="h-4 w-4" /> },
   { view: 'learn', label: 'Learn', icon: <GraduationCap className="h-4 w-4" /> },
@@ -344,6 +347,7 @@ export function AppShell() {
         {view === 'computer' && <PlayView mode="bot" />}
         {view === 'friend' && <PlayView mode="friend" />}
         {view === 'analysis' && <AnalysisView />}
+        {view === 'import' && <ImportView />}
         {view === 'puzzles' && <PuzzlesView />}
         {view === 'openings' && <OpeningsView />}
         {view === 'learn' && <LearnView />}
