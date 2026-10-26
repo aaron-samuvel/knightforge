@@ -327,3 +327,33 @@ Stage Summary:
   reproduce the whole platform anywhere
 - Demo accounts: ada|bruno|cleo|dev @demo.local, password knightforge-demo
 - Remaining external blocker: GitHub push needs a PAT from the user (github.com/aaron-samuvel)
+---
+Task ID: P9
+Agent: orchestrator (Z.ai Code)
+Task: Integrate chess-analyzer repo capability (Chess.com/Lichess game import)
+
+Work Log:
+- Cloned & audited ram-4723/chess-analyzer: Express proxy to Chess.com PubAPI
+  (player profile + recent 50 games) + Vite/React Stockfish analyzer + CC0
+  lichess openings data. No LICENSE file on the repo → did NOT copy code;
+  reimplemented the capability natively and credited the project.
+- Probed upstream reachability from sandbox: Chess.com PubAPI → Cloudflare
+  challenge (blocked); Lichess /api/user → OK but /api/games/user/{u} bulk
+  downloads → 404 (datacenter anti-scraping); /api/tv/channels + /game/export/{id} → OK.
+- Built: /api/import/games (lichess|chesscom, zod, 5-min cache, not-found vs
+  blocked separation — verifies account via /api/user before concluding),
+  /api/import/featured (Lichess TV live games, works from any host),
+  ImportView (tabs, search, featured card, Analyze hand-off), AnalysisView
+  PGN adoption via store (queueMicrotask clear — fixed React
+  setState-in-render warning), nav + View union + deep links.
+- Browser E2E: 5 featured live games listed → Analyze → board loaded with
+  opening auto-ID (A04 Réti / B10 Caro-Kann), engine Ready, moves populated,
+  0 console warnings; lint 0 errors; tsc scoped to changed files clean.
+- Attribution: THIRD_PARTY_NOTICES.md + README section (Chess.com PubAPI
+  terms, Lichess API, inspiration credit).
+
+Stage Summary:
+- New "Import" nav feature: analyze any public Lichess/Chess.com game or live
+  TV game with the built-in Stockfish review; works in-sandbox via Featured
+  (username import blocked by provider IP rules here, works from normal hosts).
+- 1 commit on top of P8; docs updated.
