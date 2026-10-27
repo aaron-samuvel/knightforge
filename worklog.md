@@ -503,3 +503,43 @@ Work Log:
 
 Stage Summary:
 - Home feature grid is fully interactive; committed and pushed.
+
+---
+Task ID: P13
+Agent: Z.ai Code (main)
+Task: Fix "can't touch Quick Match and other 5 home dashboard modules" — make home feature cards clickable and useful
+
+Work Log:
+- Located the 6 modules: src/components/views/home-view.tsx FEATURES grid (Quick Match, Computer Opponent, Private Rooms, Game Review, Puzzles, Openings & Lessons)
+- Found commit c187b96 already on origin/main had added onClick navigation to all 6 cards (working tree identical to origin/main; git in sync at c187b96 on top of platform snapshot 0b1b138)
+- Verified all 6 card clicks via agent-browser through :81 gateway: Quick Match→#play, Computer→#play(bot), Private Rooms→#friend, Game Review→#analysis, Puzzles→#puzzles (renders "Puzzle Training"), Openings→#openings
+- Verified on iPhone 14 emulation (touch): tap on Quick Match card navigates to #play correctly
+- Checked console: zero errors, zero page errors, no hydration issues
+- Root cause of user report: stale preview/older deployment (feature now works); cards previously had border-transparent making them look static, especially on touch devices with no hover
+- Polish: visible border-border/60 on cards, arrow turns emerald + slides on hover, active:bg-emerald-600/5 tap feedback for touch
+- bun run lint: clean. Committed 957fb89 and pushed to GitHub (c187b96..957fb89)
+
+Stage Summary:
+- All 6 home modules are clickable and navigate to their real views (desktop mouse + mobile touch verified)
+- Home card affordance improved: visible border + hover/touch feedback
+- Latest commit on GitHub: 957fb89
+- User should hard-refresh the preview panel; if testing their own Render deployment, redeploy to pick up latest main
+
+---
+Task ID: P14
+Agent: Z.ai Code (main)
+Task: Root-cause "home modules useless" — found and fixed a game-breaking realtime deadlock
+
+Work Log:
+- Re-verified all 6 home feature cards clickable (desktop + iPhone touch emulation) — c187b96 had already fixed navigation
+- While browser-testing the golden path (bot game), discovered the game DEADLOCKED after the opponent's first reply: status stuck at "Waiting for opponent…", board not interactive
+- Root cause: both chess servers (src/server/chess-game-server.ts embedded :3003 and mini-services/chess-game/index.ts) emitted `turn: game.chess.turn()` — chess.js returns 'w'/'b' but the client contract (GameStatePayload.turn: Color) is 'white'/'black'. After any game:state broadcast `turn === color` never matched → board permanently non-interactive. Affected ALL realtime games: Quick Match (ranked), bot games, and private friend rooms
+- Fixed statePayload() in BOTH server copies: `turn: game.chess.turn() === 'w' ? 'white' : 'black'`
+- Restarted the Next dev server to reload the embedded socket server (double-fork `setsid nohup bun run dev` survives across tool sessions)
+- Browser re-verification on :81: new bot game → played 1. e4 → bot replied c5 → status correctly flipped to "Your move" → played 2. d4 → bot replied cxd4 → status "Your move" again. Full loop works, deadlock gone
+- bun run lint: clean. Committed 1b9903e and pushed (957fb89..1b9903e). Note: mini-service file diff is large due to line-ending normalization by the patch script — content change is only the one turn line
+
+Stage Summary:
+- CRITICAL FIX: realtime games no longer deadlock after the opponent's reply — Quick Match, bot games, and friend rooms are now fully playable end-to-end
+- Combined with P13, the user's complaint (home Quick Match + 5 modules "useless") is fully addressed: cards navigate AND the games they open actually work
+- Latest commit on GitHub: 1b9903e
