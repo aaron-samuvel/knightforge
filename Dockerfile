@@ -38,7 +38,7 @@ USER knightforge
 
 EXPOSE 3000 3003
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD bun -e "const r = await fetch('http://127.0.0.1:3000/api/health'); process.exit(r.ok ? 0 : 1)"
+  CMD bun -e "const p=process.env.PORT||3000; const r=await fetch('http://127.0.0.1:'+p+'/api/health'); process.exit(r.ok?0:1)"
 
 # server.js serves the web app; src/instrumentation.ts (compiled into the
 # standalone server) also starts the realtime socket server on :3003.

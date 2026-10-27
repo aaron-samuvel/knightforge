@@ -18,6 +18,12 @@ projects:
                 generateValue: true
               - key: NEXT_PUBLIC_SITE_NAME
                 value: KnightForge
+              # NOTE: NEXT_PUBLIC_* vars are inlined into the client bundle at
+              # BUILD time; Render injects them at RUNTIME, so the built web
+              # app uses the /socket.io rewrite fallback (next.config.ts) and
+              # the embedded realtime server inside the web container. Set
+              # this var as a build arg if you want direct two-service socket
+              # connections instead.
               - key: NEXT_PUBLIC_GAME_SERVER
                 fromService:
                   type: web

@@ -35,6 +35,38 @@ docker compose up -d --build
 Behind a reverse proxy, forward websockets for `/?XTransformPort=3003` to the
 container's :3003 — see the shipped `Caddyfile` for a working example.
 
+## Option A2 — Render (one click, free tier)
+
+The repo ships a **Render blueprint** (`render.yaml`). Click the
+**Deploy to Render** button in the README (or
+`https://render.com/deploy?repo=https://github.com/aaron-samuvel/knightforge`),
+authorize Render with GitHub, and confirm. The blueprint creates:
+
+- **knightforge-web** — the main Docker image (web app + API + embedded
+  realtime server on :3003). Health check: `/api/health`.
+- **knightforge-chess** — the standalone realtime service
+  (`mini-services/chess-game`, honors `$PORT`, CORS enabled, persists
+  finished games by calling `KNIGHTFORGE_WEB_URL/api/games/finish`).
+
+How realtime reaches the browser with a single external port per service:
+the client's fallback URL hits the web service same-origin, and the rewrite
+in `next.config.ts` proxies `/socket.io/*` to the embedded server on
+`127.0.0.1:3003`. socket.io establishes over polling first and then upgrades
+to websocket where the host allows it — fully functional either way.
+
+> **Build-time caveat (honest):** `NEXT_PUBLIC_*` variables are inlined into
+> the client bundle when the Docker image builds; Render injects env vars at
+> runtime, so the deployed web app uses the rewrite fallback (self-sufficient
+> single service) rather than the direct `knightforge-chess` URL. To route
+> sockets directly to the chess service, add
+> `ARG NEXT_PUBLIC_GAME_SERVER`/`ENV NEXT_PUBLIC_GAME_SERVER` handling in the
+> web Dockerfile and rebuild with the chess service's URL.
+
+Free-tier caveats (honest list):
+- **No persistent disk** → SQLite resets on every deploy. Use a paid disk or
+  free managed Postgres (Supabase/Neon) for durable data.
+- **Sleeps after ~15 min idle** → first visit has a ~30-60 s cold start.
+
 ## Option B — Vercel + Render (free tiers)
 
 | Unit | Provider (free) | Notes |

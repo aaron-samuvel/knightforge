@@ -434,3 +434,53 @@ Work Log:
 Stage Summary:
 - KnightForge public on GitHub with CI; Pro Review feature live in Analysis
   view. chess-analyzer integration complete (import P9 + review P10).
+---
+Task ID: P11
+Agent: orchestrator (Z.ai Code)
+Task: Portable realtime routing + one-click Render deploy
+
+Work Log:
+- Pointed site GitHub links at aaron-samuvel/knightforge repo (config.ts,
+  README highlighted quick-start).
+- Made realtime portable: next.config.ts rewrites /socket.io/* → 127.0.0.1:3003
+  (single-port hosts); SITE.realtimeUrl (NEXT_PUBLIC_REALTIME_URL, default
+  sandbox gateway URL); client picks transport order per URL (polling-first
+  through the rewrite, ws-first via Caddy).
+- Dockerfile HEALTHCHECK now honors $PORT (Render sets PORT=10000).
+- Added render.yaml blueprint (Docker, free plan, healthcheck /api/health,
+  AUTH_SECRET generated, honest free-tier caveats) + README Deploy-to-Render
+  button + docs/deployment.md Option A2.
+- Verified: lint 0; full socket.io polling round-trip through the rewrite
+  (handshake → connect → lobby:stats); browser golden path via :81 gateway —
+  bot game started, 1. e4 b5 played, clocks ticking; :3000 direct path
+  handshake also OK post-rewrite.
+
+Stage Summary:
+- One-click Render deploy live; app runs unchanged in sandbox and becomes
+  deployable to any single-port host.
+---
+Task ID: P12
+Agent: orchestrator (Z.ai Code)
+Task: Merge user's Render blueprint with portable realtime routing; recover git state
+
+Work Log:
+- Sandbox git was re-initialized by the platform (history replaced by a single
+  snapshot commit); re-anchored local repo to origin/main (all 14 commits safe
+  on GitHub) and preserved working-tree changes.
+- Discovered user's own commit afbd049 on GitHub: two-service Render blueprint
+  (knightforge-web + knightforge-chess), mini-services Dockerfile + PORT/URL
+  env support, NEXT_PUBLIC_GAME_SERVER client env. Adopted user's versions for
+  mini-services/*, render.yaml, README.
+- Merged critical fix: next.config.ts /socket.io rewrite + Dockerfile $PORT
+  healthcheck + client transport order (polling-first on fallback path, since
+  NEXT_PUBLIC_* is build-time-only and Render injects env at runtime — the
+  deployed web service is self-sufficient via the embedded server).
+- Documented both topologies + build-time caveat honestly in docs/deployment.md
+  and render.yaml comments.
+- Verified: lint 0; /api/health OK; socket handshake via rewrite OK; browser
+  golden path via :81 gateway — 1. e4 Na6 played, clocks running.
+
+Stage Summary:
+- Remote + local histories re-unified; user's two-service Render deploy kept
+  and hardened; single-port realtime fallback guarantees functionality even
+  without build args.

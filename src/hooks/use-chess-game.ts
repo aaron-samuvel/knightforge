@@ -60,8 +60,18 @@ export function useChessGame(): UseChessGameReturn {
   const [opponentConnected, setOpponentConnected] = useState(true)
 
   useEffect(() => {
-    const socket = io(process.env.NEXT_PUBLIC_GAME_SERVER || '/?XTransformPort=3003', {
-      transports: ['websocket', 'polling'],
+    // Realtime endpoint: NEXT_PUBLIC_GAME_SERVER (two-service topology, e.g.
+    // Render — NOTE: NEXT_PUBLIC_* is baked at BUILD time) or the sandbox
+    // Caddy gateway convention. With the fallback, the /socket.io rewrite in
+    // next.config.ts proxies to the embedded server on single-port hosts too.
+    const realtimeUrl = process.env.NEXT_PUBLIC_GAME_SERVER || '/?XTransformPort=3003'
+    const socket = io(realtimeUrl, {
+      // Direct service URL passes websocket upgrades natively → ws first.
+      // The fallback path may be proxied (single-port hosts) → establish
+      // over polling first, then attempt the websocket upgrade.
+      transports: process.env.NEXT_PUBLIC_GAME_SERVER
+        ? ['websocket', 'polling']
+        : ['polling', 'websocket'],
       forceNew: true,
       reconnection: true,
       reconnectionAttempts: 10,
@@ -312,4 +322,3 @@ export function liveClock(sync: ClockSync | null, side: Color): number {
   if (!sync.running || sync.turn !== side) return Math.max(0, base)
   return Math.max(0, base - (Date.now() - sync.at))
 }
-
