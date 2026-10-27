@@ -192,7 +192,8 @@ function statePayload(game: Game, lastMove?: { from: string; to: string; san: st
     gameId: game.id,
     fen: game.chess.fen(),
     lastMove: lastMove ?? null,
-    turn: game.chess.turn(),
+    // chess.js returns 'w' | 'b' — the client contract (Color) is 'white' | 'black'
+    turn: game.chess.turn() === 'w' ? 'white' : 'black',
     clocks: liveClocks(game),
     check: game.chess.inCheck(),
     moveNumber: game.chess.moveNumber(),
