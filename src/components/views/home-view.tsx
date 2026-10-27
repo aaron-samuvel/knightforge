@@ -81,7 +81,7 @@ export function HomeView() {
                 setView(f.view)
               }
             }}
-            className="group cursor-pointer border-transparent bg-muted/40 transition-all hover:-translate-y-0.5 hover:border-emerald-600/30 hover:bg-muted hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 active:translate-y-0"
+            className="group cursor-pointer border-border/60 bg-muted/40 transition-all hover:-translate-y-0.5 hover:border-emerald-600/40 hover:bg-muted hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 active:translate-y-0 active:bg-emerald-600/5"
           >
             <CardContent className="flex items-start gap-3 p-5">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-600">
@@ -90,7 +90,7 @@ export function HomeView() {
               <div className="min-w-0 flex-1">
                 <h3 className="flex items-center justify-between gap-2 font-bold">
                   {f.title}
-                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-emerald-600" />
                 </h3>
                 <p className="text-sm text-muted-foreground">{f.desc}</p>
               </div>
