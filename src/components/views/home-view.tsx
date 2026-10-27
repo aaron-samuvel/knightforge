@@ -1,20 +1,20 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, BookOpen, Crown, Flame, GraduationCap, Puzzle, ShieldCheck, Swords, Users, Zap } from 'lucide-react'
+import { ArrowRight, Bot, BookOpen, Crown, Flame, GraduationCap, Puzzle, ShieldCheck, Swords, Users, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { SITE } from '@/lib/config'
-import { useApp } from '@/lib/store'
+import { useApp, type View } from '@/lib/store'
 import type { LeaderboardEntry } from '@/lib/chess-types'
 
-const FEATURES = [
-  { icon: <Swords className="h-5 w-5" />, title: 'Quick Match', desc: 'Rated realtime matchmaking with chess clocks.' },
-  { icon: <Bot className="h-5 w-5" />, title: 'Computer Opponent', desc: 'Instant bot games, unrated, any time control.' },
-  { icon: <Users className="h-5 w-5" />, title: 'Private Rooms', desc: 'Play friends with a 6-character room code.' },
-  { icon: <Zap className="h-5 w-5" />, title: 'Game Review', desc: 'Stockfish WASM analysis: blunders, accuracy, best moves.' },
-  { icon: <Puzzle className="h-5 w-5" />, title: 'Puzzles', desc: 'Mate-in-1/2 and tactics with daily challenge and streaks.' },
-  { icon: <BookOpen className="h-5 w-5" />, title: 'Openings & Lessons', desc: 'ECO-tagged opening explorer plus beginner curriculum.' },
+const FEATURES: { icon: React.ReactNode; title: string; desc: string; view: View }[] = [
+  { icon: <Swords className="h-5 w-5" />, title: 'Quick Match', desc: 'Rated realtime matchmaking with chess clocks.', view: 'play' },
+  { icon: <Bot className="h-5 w-5" />, title: 'Computer Opponent', desc: 'Instant bot games, unrated, any time control.', view: 'computer' },
+  { icon: <Users className="h-5 w-5" />, title: 'Private Rooms', desc: 'Play friends with a 6-character room code.', view: 'friend' },
+  { icon: <Zap className="h-5 w-5" />, title: 'Game Review', desc: 'Stockfish WASM analysis: blunders, accuracy, best moves.', view: 'analysis' },
+  { icon: <Puzzle className="h-5 w-5" />, title: 'Puzzles', desc: 'Mate-in-1/2 and tactics with daily challenge and streaks.', view: 'puzzles' },
+  { icon: <BookOpen className="h-5 w-5" />, title: 'Openings & Lessons', desc: 'ECO-tagged opening explorer plus beginner curriculum.', view: 'openings' },
 ]
 
 export function HomeView() {
@@ -69,13 +69,29 @@ export function HomeView() {
 
       <section aria-label="Features" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {FEATURES.map((f) => (
-          <Card key={f.title}>
+          <Card
+            key={f.title}
+            role="button"
+            tabIndex={0}
+            aria-label={`Open ${f.title}`}
+            onClick={() => setView(f.view)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setView(f.view)
+              }
+            }}
+            className="group cursor-pointer border-transparent bg-muted/40 transition-all hover:-translate-y-0.5 hover:border-emerald-600/30 hover:bg-muted hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 active:translate-y-0"
+          >
             <CardContent className="flex items-start gap-3 p-5">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-600">
                 {f.icon}
               </span>
-              <div>
-                <h3 className="font-bold">{f.title}</h3>
+              <div className="min-w-0 flex-1">
+                <h3 className="flex items-center justify-between gap-2 font-bold">
+                  {f.title}
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </h3>
                 <p className="text-sm text-muted-foreground">{f.desc}</p>
               </div>
             </CardContent>

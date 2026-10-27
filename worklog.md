@@ -484,3 +484,22 @@ Stage Summary:
 - Remote + local histories re-unified; user's two-service Render deploy kept
   and hardened; single-port realtime fallback guarantees functionality even
   without build args.
+---
+Task ID: P13
+Agent: orchestrator (Z.ai Code)
+Task: Home dashboard feature cards — make clickable/useful
+
+Work Log:
+- User report: the 6 home feature cards (Quick Match, Computer Opponent,
+  Private Rooms, Game Review, Puzzles, Openings & Lessons) were static and
+  untouchable.
+- home-view.tsx: each card is now a full-card button (role=button, tabIndex,
+  aria-label, Enter/Space keyboard support) navigating to its view
+  (play/computer/friend/analysis/puzzles/openings), with hover lift,
+  emerald focus ring, and arrow affordance.
+- Browser E2E via :81 gateway: all six cards navigate (hash deep links
+  #play #computer #friend #analysis #puzzles #openings), 0 page errors;
+  lint 0.
+
+Stage Summary:
+- Home feature grid is fully interactive; committed and pushed.
