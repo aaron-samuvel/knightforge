@@ -8,11 +8,17 @@ export interface AuthResult {
   error?: string
 }
 
+/** Module-level guard: the session bootstrap must run once per page load. */
+let sessionBootstrapped = false
+
 export function useAuth() {
   const { user, setUser, setAuthModal } = useApp()
 
-  // Bootstrap session on mount
+  // Bootstrap session on mount — guarded so the multiple hook call-sites
+  // (AppShell, AuthModal, ProfileView) trigger exactly ONE /api/auth/me.
   useEffect(() => {
+    if (sessionBootstrapped) return
+    sessionBootstrapped = true
     let cancelled = false
     fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))

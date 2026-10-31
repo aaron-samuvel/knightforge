@@ -19,4 +19,42 @@ export async function register(): Promise<void> {
 
   const { startChessGameServer } = await import('@/server/chess-game-server')
   startChessGameServer()
+
+  // Warm up route compilation so the FIRST visitor doesn't pay the
+  // cold-compile cost (dev mode compiles on demand; a restart wipes the
+  // cache and made the site feel slow to open). Fire-and-forget: retries
+  // until the HTTP server is listening, then hits the routes users open
+  // most. In production the app is prebuilt, so this is a cheap no-op
+  // that just warms response caches.
+  void warmRoutes()
+}
+
+const WARM_PATHS = [
+  '/',
+  '/api/health',
+  '/api/auth/me',
+  '/api/leaderboard',
+  '/api/puzzles/daily',
+  '/api/puzzles?theme=all&difficulty=all&count=10',
+]
+
+async function warmRoutes(): Promise<void> {
+  if (process.env.KNIGHTFORGE_NO_WARMUP) return
+  const port = process.env.PORT ?? '3000'
+  const base = `http://127.0.0.1:${port}`
+  // Wait for the server to start listening (up to ~30s)
+  for (let i = 0; i < 30; i++) {
+    try {
+      const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(2000) })
+      if (res.ok) break
+    } catch {
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+  }
+  await Promise.allSettled(
+    WARM_PATHS.map((p) =>
+      fetch(`${base}${p}`, { signal: AbortSignal.timeout(30_000) }).catch(() => undefined)
+    )
+  )
+  console.log('[knightforge] route warmup complete')
 }
