@@ -11,6 +11,7 @@ import { GET as leaderboardGET } from '@/app/api/leaderboard/route'
 import { GET as analysesGET } from '@/app/api/analyses/route'
 import { GET as friendsGET, POST as friendsPOST } from '@/app/api/friends/route'
 import { GET as playersGET } from '@/app/api/players/[name]/route'
+import { POST as finishPOST } from '@/app/api/games/finish/route'
 
 const SUFFIX = Math.random().toString(36).slice(2, 7)
 const U1 = `vf_one_${SUFFIX}`
@@ -127,5 +128,36 @@ describe('GET /api/analyses', () => {
     const body = await res.json()
     expect(Array.isArray(body.analyses)).toBe(true)
     expect(typeof body.total).toBe('number')
+  })
+})
+
+describe('POST /api/games/finish', () => {
+  it('persists a rated game and applies the K=32 Elo delta (regression: K import)', async () => {
+    const res = await finishPOST(
+      new NextRequest('http://localhost/api/games/finish', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          whiteName: U1,
+          blackName: U2,
+          whiteRating: 1250,
+          blackRating: 1105,
+          result: 'white',
+          reason: 'resignation',
+          pgn: '1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7#',
+          moveCount: 8,
+          timeControl: '5+0',
+          rated: true,
+        }),
+      })
+    )
+    expect(res.status).toBe(201)
+    const game = await res.json()
+    // Equal-ish ratings: white (higher-rated) wins → positive delta
+    expect(game.whiteRatingDelta).toBeGreaterThan(0)
+    expect(game.blackRatingDelta).toBeLessThanOrEqual(0)
+    expect(game.whiteRatingDelta).toBeLessThanOrEqual(32)
+    // Cleanup the game row so repeated runs stay independent
+    await db.game.delete({ where: { id: game.id } })
   })
 })

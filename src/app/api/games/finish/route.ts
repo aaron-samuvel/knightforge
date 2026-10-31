@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { rateLimitIp } from '@/lib/rate-limit'
-import { DEFAULT_RATING, expectedScore } from '@/lib/elo'
+import { DEFAULT_RATING, expectedScore, K } from '@/lib/elo'
 
 const finishGameSchema = z.object({
   whiteName: z.string().trim().min(1).max(20),

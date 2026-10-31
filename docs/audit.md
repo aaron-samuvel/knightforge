@@ -116,3 +116,14 @@ place; the sandbox-hosted site (knightforge.space-z.ai) runs an older build
   rotate it from the repo settings after pushing.
 - **Deployment**: Render blueprint supports the current single-web-service topology;
   the SSE/leaderboard/analysis features deploy unchanged.
+
+### 7. Post-P20 regression found & fixed (live E2E catch)
+
+- **`ReferenceError: K is not defined` in `POST /api/games/finish`** — the P19
+  Elo extraction moved `K` into `src/lib/elo.ts` but the finish route only
+  imported `expectedScore`/`DEFAULT_RATING`. Every **rated** game finish
+  returned 500: games were not persisted, Elo/W-L/D never updated. Caught by
+  the live two-browser E2E (ada resigns vs bruno → 500 in logs), fixed by
+  importing `K`, and locked in with a route-level regression test
+  (26 tests total, all green). Verified live: finish → 201, `+9` Elo applied,
+  leaderboard reflects it.
