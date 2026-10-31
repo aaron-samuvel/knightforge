@@ -628,3 +628,22 @@ Work Log:
 Stage Summary:
 - Remaining audit gaps are now infrastructure-only (Postgres/Redis/Docker hosts) or user-action-only (GitHub token rotation, Resend key). Everything solvable in-sandbox is solved and verified
 - Commit + push below
+
+---
+Task ID: P19
+Agent: Z.ai Code (main)
+Task: KNIGHTFORGE ULTIMATE closure — Argon2id, saved-reviews library, Friends UI, Vitest suite
+
+Work Log:
+- ARGON2ID (was bcryptjs): new src/lib/password.ts — hash-wasm Argon2id (pure WASM, no native binaries; OWASP m=19456 KiB, t=2, p=1). register/reset-password hash with Argon2id; login verifies Argon2id OR legacy bcrypt and transparently rehashes bcrypt accounts on successful sign-in. All 7 demo accounts migrated immediately; privacy policy + terms text updated
+- Unit-proven: PHC format, salt uniqueness, wrong-password rejection, legacy bcrypt verify + needsRehash flag
+- SAVED PRO REVIEWS LIBRARY: GET /api/analyses (newest first, offset/limit, joined game metadata) + GameAnalysis↔Game Prisma relation (schema, db:push OK). Dashboard "Saved Pro Reviews" panel lists accuracy/depth/date with a Review button that reopens the game in Pro Review via the stored PGN — verified end-to-end: cleo vs bruno review reopened into #analysis with full PGN
+- FRIENDS (schema existed since P1, flows were "Not implemented"): GET/POST /api/friends + PATCH/DELETE /api/friends/[id] — accept/decline/block recipient-only, remove by either party, 10/5min rate limit, anti-enumeration on block (silent 201). Dashboard "Friends" panel: add by username, incoming requests with Accept/Decline, friends list with avatar/flag/rating, cancel outgoing, Remove; every player row opens the profile dialog (PlayerProfileDialog + PlayerAvatar extracted from leaderboard-view into a shared component, leaderboard refactored to import it)
+- Browser-verified two sessions: ada→bruno request; bruno sees "Accept/Decline friend request from ada", Ada's profile dialog opens from the request row; Accept → both dashboards show "Friends (1)"; zero console errors; iPhone 14 viewport clean
+- TESTS (ULTIMATE spec): vitest installed, vitest.config.ts with @ alias + tests/setup-env.ts (DATABASE_URL=file:./db/test.db so the suite never touches dev data). 25 tests / 4 files, all green: Elo math (extracted src/lib/elo.ts, imported by games/finish — equal-rating ±16, zero-sum, 0.76 expected for +200), Argon2id hash/verify/legacy-migration, rate limiter (windows, isolation, IP parsing), route-handler integration (health, leaderboard ordering+age, players profile leak-check, friends 401 guards, analyses). `bun run test` pushes the throwaway db first; GitHub Actions CI got a "Unit + integration tests" step
+- OpenAPI: /api/analyses, /api/friends, /api/friends/[id] documented
+- Note: dev server needed a restart after the Prisma relation was added (stale client → GameAnalysis.findMany include game failed); fresh start resolves it
+- bun run lint: clean; dev.log clean
+
+Stage Summary:
+- Every KNIGHTFORGE ULTIMATE item that is solvable in this sandbox is now implemented and verified: Argon2id, session revocation (P18), friends, saved-reviews library, OpenAPI, Docker/CI + a real 25-test Vitest suite. Remaining gaps are credential-only: managed Postgres URL (DATABASE_URL), Redis host, Resend API key, GitHub PAT rotation — documented in docs/audit.md §4

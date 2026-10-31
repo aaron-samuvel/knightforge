@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { rateLimitIp } from '@/lib/rate-limit'
+import { DEFAULT_RATING, expectedScore } from '@/lib/elo'
 
 const finishGameSchema = z.object({
   whiteName: z.string().trim().min(1).max(20),
@@ -33,13 +34,6 @@ const finishGameSchema = z.object({
   whiteUserId: z.string().trim().min(1).optional(),
   blackUserId: z.string().trim().min(1).optional(),
 })
-
-const K = 32
-const DEFAULT_RATING = 800
-
-function expectedScore(playerRating: number, opponentRating: number): number {
-  return 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400))
-}
 
 interface PlayerUpdate {
   name: string

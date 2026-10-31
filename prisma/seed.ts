@@ -6,7 +6,7 @@
  * fresh install. Run with:  bun prisma/seed.ts
  */
 import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcryptjs'
+import { hashPassword } from '../src/lib/password'
 
 const db = new PrismaClient()
 
@@ -124,7 +124,7 @@ const GAMES: DemoGame[] = [
 async function main() {
   console.log('Seeding KnightForge demo data…')
 
-  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10)
+  const passwordHash = await hashPassword(DEMO_PASSWORD)
 
   for (const u of USERS) {
     await db.user.upsert({

@@ -61,3 +61,7 @@ db/*.db
 *.log
 chess-service.log
 dev.log
+
+# vitest throwaway database
+prisma/db/test.db
+db/test.db

@@ -223,6 +223,83 @@ export async function GET() {
         },
         post: { summary: 'Create/ensure a local user by name', responses: { '201': { description: 'Created' } } },
       },
+      '/api/analyses': {
+        get: {
+          summary: 'Library of persisted Pro Reviews (newest first)',
+          parameters: [
+            { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0, default: 0 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 50, default: 20 } },
+          ],
+          responses: { '200': { description: 'Saved analyses with game metadata' } },
+        },
+      },
+      '/api/friends': {
+        get: {
+          summary: 'Friends, incoming and outgoing friend requests (requires session)',
+          security: [{ sessionCookie: [] }],
+          responses: {
+            '200': { description: 'Social graph of the signed-in user' },
+            '401': { description: 'Unauthorized' },
+          },
+        },
+        post: {
+          summary: 'Send a friend request by username (rate-limited: 10/5min per IP)',
+          security: [{ sessionCookie: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name'],
+                  properties: { name: { type: 'string', minLength: 3, maxLength: 20 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Request sent' },
+            '401': { description: 'Unauthorized' },
+            '404': { description: 'Player not found' },
+            '409': { description: 'Relationship already exists' },
+            '429': { description: 'Rate limited' },
+          },
+        },
+      },
+      '/api/friends/{id}': {
+        patch: {
+          summary: 'Accept, decline or block a friend request (recipient only)',
+          security: [{ sessionCookie: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['action'],
+                  properties: { action: { type: 'string', enum: ['accept', 'decline', 'block'] } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Updated' },
+            '403': { description: 'Not the recipient' },
+            '404': { description: 'Request not found' },
+          },
+        },
+        delete: {
+          summary: 'Remove a friendship or cancel a request (either party)',
+          security: [{ sessionCookie: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Removed' },
+            '401': { description: 'Unauthorized' },
+            '404': { description: 'Not found' },
+          },
+        },
+      },
       '/api/import/featured': {
         get: { summary: 'Featured master games', responses: { '200': { description: 'Games' } } },
       },

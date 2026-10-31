@@ -12,12 +12,12 @@ const CONTENT: Record<Kind, { title: string; icon: React.ReactNode; body: React.
     icon: <ShieldCheck className="h-6 w-6 text-emerald-600" />,
     body: (
       <div className="space-y-4 text-sm leading-relaxed">
-        <p><strong>What we collect.</strong> An account stores your username, email address, a bcrypt hash of your password (never the password itself), optional display name/bio/avatar color, and gameplay data: games (moves, results, ratings), puzzle attempts and preferences.</p>
+        <p><strong>What we collect.</strong> An account stores your username, email address, an Argon2id hash of your password (never the password itself), optional display name/bio/avatar color, and gameplay data: games (moves, results, ratings), puzzle attempts and preferences.</p>
         <p><strong>How it is used.</strong> Data is used solely to operate the platform: authentication, matchmaking, ratings, leaderboards, saved history and progress tracking. We do not sell data or run advertising.</p>
         <p><strong>Cookies.</strong> A single httpOnly session cookie (<code>kf_session</code>) keeps you signed in. No third-party tracking cookies are set.</p>
         <p><strong>Engine analysis.</strong> Stockfish runs entirely in your browser; positions sent for analysis never leave your device.</p>
         <p><strong>Deletion.</strong> You can request account deletion via the contact channel; game records are anonymized rather than deleted to preserve leaderboard integrity.</p>
-        <p><strong>Security.</strong> Sessions are signed JWTs in httpOnly cookies; passwords are hashed with bcrypt; all game moves are validated server-side.</p>
+        <p><strong>Security.</strong> Sessions are signed JWTs in httpOnly cookies; passwords are hashed with Argon2id; all game moves are validated server-side.</p>
       </div>
     ),
   },

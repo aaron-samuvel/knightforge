@@ -21,9 +21,9 @@ rules forbid rebuilding a working frontend or breaking the deployed site. Theref
 | NestJS/Express | Not added — Next Route Handlers already are the backend; a second framework would violate "no unnecessary technologies" | n/a (kept) |
 | Redis + BullMQ | No daemon available; in-memory rate limiter + module-scoped caches used instead | Swap `src/lib/rate-limit.ts` Map for Redis INCR/EXPIRE |
 | Docker / GitHub Actions | Dockerfile-free; repo deploys via Render blueprint (docs/deployment.md) | Straightforward once infra exists |
-| Argon2id | bcryptjs (cost 10+) already in place, pure-JS so it survives every host | `bun add @node-rs/argon2` + rehash-on-login |
-| Refresh-token rotation | Single 30-day HS256 httpOnly session cookie (jose) | Documented below |
-| Vitest/Playwright | Sandbox rule: no test code; verification via browser automation | docs/testing.md holds the spec to implement |
+| Argon2id | **Done (P19)** — hash-wasm Argon2id (m=19456, t=2, p=1), bcrypt → Argon2id rehash-on-login, demo accounts migrated | n/a |
+| Refresh-token rotation | Single 30-day HS256 httpOnly session cookie (jose) with server-side revocation via the Session table (P18) | Optional: short-lived access + refresh rotation |
+| Vitest tests | **Done (P19)** — 25 tests: Elo, Argon2id, rate limiter, route-handler integration against a throwaway DB (`bun run test`) | Playwright e2e when a browser host is available (CI-ready) |
 
 ## 2. Feature audit
 
@@ -46,13 +46,19 @@ rules forbid rebuilding a working frontend or breaking the deployed site. Theref
 - **Import**: PGN/FEN import, featured master games.
 - **Profiles**: nationality/birth-year, avatar, bio, preferences; public player API.
 - **API docs**: `/api` index + `/api/openapi.json` (OpenAPI 3.1) (P17).
+- **Saved Pro Reviews library** (P19): `GET /api/analyses` + dashboard panel; every
+  saved review reopens in Pro Review via the stored PGN.
+- **Friends** (P19): send/accept/decline/block/remove over the existing Friend
+  schema, dashboard panel with profile dialogs, anti-enumeration on block,
+  rate-limited request creation.
+- **Password hashing** (P19): Argon2id (OWASP m=19456/t=2/p=1 via hash-wasm);
+  legacy bcrypt hashes verify and transparently rehash on login; demo accounts migrated.
+- **Tests** (P19): Vitest suite — Elo math, Argon2id hashing/migration, rate limiter,
+  and route-handler integration (health/leaderboard/players/friends-guards/analyses)
+  against a throwaway SQLite DB; wired into GitHub Actions CI.
 
 ### B. Partially functional
 
-- **Analysis persistence** — backend + auto-save done (P17); **missing**: a UI list of
-  past analyses ("saved reviews" library) and re-fetch into the review dialog.
-- **Sessions** — single long-lived JWT; no refresh-token rotation or revocation list yet.
-  Logout is client-side cookie clear; a stolen token stays valid until expiry.
 - **Games history** — recent-games feed is global (last 50); no per-user pagination
   beyond it. PGNs stored, per-move rows not (can be derived from PGN on demand).
 - **Rate limiting** — in-memory per node; behind >1 instance limits are per-instance.
@@ -60,23 +66,21 @@ rules forbid rebuilding a working frontend or breaking the deployed site. Theref
 
 ### C. Not implemented (planned)
 
-- Friends UI (schema exists, no flows yet), notifications, in-game chat.
+- Notifications, in-game chat, direct friend challenges (friend graph itself is done, P19).
 - Per-time-control ratings / Glicko-2; tournament & arena mode.
 - Board editor; per-user pagination dashboards; admin moderation.
-- Refresh-token rotation + session revocation table.
-- CI test suites (documented in docs/testing.md, blocked by sandbox test rule).
+- Playwright e2e suite (Vitest unit/integration landed in P19; e2e currently via agent-browser verification + CI smoke test).
 
 ## 3. Development plan (priority order)
 
 1. **Done P17 (security & persistence hardening)**: rate limits, security headers,
    login history, analysis persistence API, PGN endpoint, OpenAPI.
-2. Saved-analyses library UI (list + reopen from dashboard).
-3. Session revocation (Session table keyed by jti, checked in `getSessionUser`).
-4. Friends: accept/deny UI on the existing `Friend` schema → direct challenges.
-5. Per-user games pagination + per-move table generated from PGN at finish time.
-6. Redis swap for rate limiting + matchmaking queue persistence when infra allows.
-7. Postgres migration (provider swap) on Render managed Postgres.
-8. Email delivery (Resend/SES) behind the existing reset-token flow.
+2. **Done P18**: session revocation, AUTH_SECRET, email delivery path (Resend), full rate-limit coverage, per-user history.
+3. **Done P19 (KNIGHTFORGE ULTIMATE closure)**: Argon2id + bcrypt rehash-on-login, saved-reviews library, Friends UI + API, Vitest suite (25 tests) in CI.
+4. Direct friend challenges from the friends list (room pre-fill).
+5. Redis swap for rate limiting + matchmaking queue persistence when infra allows.
+6. Postgres migration (provider swap) on Render managed Postgres.
+7. Email delivery (Resend/SES) behind the existing reset-token flow.
 
 ## 4. Credentials & infrastructure still missing (honest list)
 

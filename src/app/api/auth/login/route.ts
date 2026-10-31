@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
+import { verifyPassword } from '@/lib/password'
 import {
   createSessionToken,
   sessionCookieOptions,
@@ -56,9 +56,19 @@ export async function POST(req: NextRequest) {
       return fail('Invalid email or password')
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash)
+    const { valid, needsRehash } = await verifyPassword(password, user.passwordHash)
     if (!valid) {
       return fail('Invalid email or password')
+    }
+
+    // Transparent upgrade: legacy bcrypt hash -> Argon2id on successful login
+    if (needsRehash) {
+      const { hashPassword } = await import('@/lib/password')
+      void hashPassword(password)
+        .then((passwordHash) =>
+          db.user.update({ where: { id: user.id }, data: { passwordHash } })
+        )
+        .catch((err) => console.error('[auth] argon2 rehash failed:', err))
     }
 
     void db.loginHistory.create({

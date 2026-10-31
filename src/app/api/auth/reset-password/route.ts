@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
+import { hashPassword } from '@/lib/password'
 import { rateLimitIp } from '@/lib/rate-limit'
 import { revokeAllUserSessions } from '@/lib/auth'
 
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const passwordHash = await bcrypt.hash(password, 10)
+    const passwordHash = await hashPassword(password)
     await db.$transaction([
       db.user.update({
         where: { id: reset.userId },

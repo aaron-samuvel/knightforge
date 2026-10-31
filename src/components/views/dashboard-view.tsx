@@ -8,6 +8,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useApp } from '@/lib/store'
 import type { HistoryGame } from '@/lib/chess-types'
 import { HistoryPanel, resultLabel } from '@/components/chess/history-panel'
+import { SavedReviewsPanel } from '@/components/chess/saved-reviews-panel'
+import { FriendsPanel } from '@/components/chess/friends-panel'
 
 interface StatsShape {
   rating: number
@@ -153,6 +155,19 @@ export function DashboardView() {
           </Card>
           <HistoryPanel refreshKey={refresh} />
         </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="p-4">
+            <SavedReviewsPanel refreshKey={refresh} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <FriendsPanel />
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

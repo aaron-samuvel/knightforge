@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import bcrypt from 'bcryptjs'
 import { Prisma } from '@prisma/client'
+import { hashPassword } from '@/lib/password'
 import { db } from '@/lib/db'
 import { rateLimitIp } from '@/lib/rate-limit'
 import {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { email, password, name } = parsed.data
-    const passwordHash = await bcrypt.hash(password, 10)
+    const passwordHash = await hashPassword(password)
 
     const user = await db.user.create({
       data: { email, passwordHash, name, displayName: name },

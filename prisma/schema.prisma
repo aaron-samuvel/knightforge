@@ -85,6 +85,8 @@ model GameAnalysis {
   analyzedBy    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
 }
 
 model PasswordReset {
@@ -122,6 +124,8 @@ model Game {
 
   whiteUser User? @relation("GameWhiteUser", fields: [whiteUserId], references: [id])
   blackUser User? @relation("GameBlackUser", fields: [blackUserId], references: [id])
+
+  analysis GameAnalysis?
 
   @@index([createdAt])
   @@index([whiteUserId])
