@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import {
   BarChart3,
   BookOpen,
@@ -39,16 +40,33 @@ import { SITE } from '@/lib/config'
 import { useApp, type View } from '@/lib/store'
 import { useAuth } from '@/hooks/use-auth'
 import { HomeView } from '@/components/views/home-view'
-import { PlayView } from '@/components/views/play-view'
-import { PuzzlesView } from '@/components/views/puzzles-view'
-import { OpeningsView } from '@/components/views/openings-view'
-import { LearnView } from '@/components/views/learn-view'
-import { AnalysisView } from '@/components/views/analysis-view'
-import { ImportView } from '@/components/views/import-view'
-import { DashboardView } from '@/components/views/dashboard-view'
-import { LeaderboardView } from '@/components/views/leaderboard-view'
-import { ProfileView } from '@/components/views/profile-view'
-import { LegalView } from '@/components/views/legal-view'
+
+// ─── View code-splitting ────────────────────────────────────────────────────
+// Home loads eagerly (it is the landing view); every other view is a lazy
+// chunk fetched on demand. This keeps the initial download small so the site
+// opens fast — the chess engine, boards and analysis tools are only shipped
+// when a user actually visits those pages.
+function ViewLoading() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-label="Loading page">
+      <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+    </div>
+  )
+}
+
+const lazyView = (loader: () => Promise<React.ComponentType>) =>
+  dynamic(loader, { loading: ViewLoading })
+
+const PlayView = lazyView(() => import('@/components/views/play-view').then((m) => m.PlayView))
+const PuzzlesView = lazyView(() => import('@/components/views/puzzles-view').then((m) => m.PuzzlesView))
+const OpeningsView = lazyView(() => import('@/components/views/openings-view').then((m) => m.OpeningsView))
+const LearnView = lazyView(() => import('@/components/views/learn-view').then((m) => m.LearnView))
+const AnalysisView = lazyView(() => import('@/components/views/analysis-view').then((m) => m.AnalysisView))
+const ImportView = lazyView(() => import('@/components/views/import-view').then((m) => m.ImportView))
+const DashboardView = lazyView(() => import('@/components/views/dashboard-view').then((m) => m.DashboardView))
+const LeaderboardView = lazyView(() => import('@/components/views/leaderboard-view').then((m) => m.LeaderboardView))
+const ProfileView = lazyView(() => import('@/components/views/profile-view').then((m) => m.ProfileView))
+const LegalView = lazyView(() => import('@/components/views/legal-view').then((m) => m.LegalView))
 
 const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; auth?: boolean }[] = [
   { view: 'home', label: 'Home', icon: <Home className="h-4 w-4" /> },
@@ -300,6 +318,18 @@ export function AppShell() {
     setMoreOpen(false)
     setView(v)
   }
+
+  // Warm the Play chunk in the background once the page is idle — Play is the
+  // most-visited view and this makes its first open feel instant, without
+  // competing with the initial render for bandwidth.
+  useEffect(() => {
+    const warm = () => {
+      void import('@/components/views/play-view')
+      void import('@/components/views/leaderboard-view')
+    }
+    const t = setTimeout(warm, 2500)
+    return () => clearTimeout(t)
+  }, [])
 
   const moreItems = NAV_ITEMS.filter(
     (n) => !MOBILE_ITEMS.includes(n.view) && (!n.auth || user)
