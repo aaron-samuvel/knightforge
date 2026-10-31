@@ -73,6 +73,8 @@ export function toSessionUser(user: User) {
     draws: user.draws,
     puzzleSolved: user.puzzleSolved,
     puzzleStreak: user.puzzleStreak,
+    country: user.country,
+    birthYear: user.birthYear,
     preferences: user.preferences,
   }
 }

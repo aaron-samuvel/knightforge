@@ -25,6 +25,8 @@ type DemoUser = {
   puzzleStreak: number
   avatarColor: string
   bio: string
+  country?: string // ISO 3166 alpha-2 nationality, shown in the global ranking
+  birthYear?: number // age = currentYear - birthYear
 }
 
 const USERS: DemoUser[] = [
@@ -33,24 +35,48 @@ const USERS: DemoUser[] = [
     rating: 1350, puzzleRating: 1420, wins: 24, losses: 15, draws: 4,
     puzzleSolved: 63, puzzleStreak: 5, avatarColor: '#059669',
     bio: 'Endgame enthusiast. Rooks before noodles.',
+    country: 'IN', birthYear: 1999,
   },
   {
     email: 'bruno@demo.local', name: 'bruno', displayName: 'Bruno',
     rating: 1180, puzzleRating: 1010, wins: 17, losses: 19, draws: 2,
     puzzleSolved: 38, puzzleStreak: 2, avatarColor: '#d97706',
     bio: '1.e4 and let the blades fly.',
+    country: 'BR', birthYear: 1994,
   },
   {
     email: 'cleo@demo.local', name: 'cleo', displayName: 'Cleo',
     rating: 990, puzzleRating: 890, wins: 9, losses: 11, draws: 1,
     puzzleSolved: 21, puzzleStreak: 0, avatarColor: '#dc2626',
     bio: 'Learning one blunder at a time.',
+    country: 'GB', birthYear: 2007,
   },
   {
     email: 'dev@demo.local', name: 'dev', displayName: 'Dev',
     rating: 800, puzzleRating: 800, wins: 0, losses: 0, draws: 0,
     puzzleSolved: 0, puzzleStreak: 0, avatarColor: '#7c3aed',
     bio: 'Fresh account for testing flows.',
+  },
+  {
+    email: 'nina@demo.local', name: 'nina', displayName: 'Nina',
+    rating: 1420, puzzleRating: 1500, wins: 31, losses: 12, draws: 6,
+    puzzleSolved: 77, puzzleStreak: 8, avatarColor: '#0d9488',
+    bio: 'Sicilian, always.',
+    country: 'NO', birthYear: 1998,
+  },
+  {
+    email: 'rafa@demo.local', name: 'rafa', displayName: 'Rafa',
+    rating: 1270, puzzleRating: 1180, wins: 20, losses: 16, draws: 3,
+    puzzleSolved: 45, puzzleStreak: 3, avatarColor: '#e11d48',
+    bio: 'Ruy Lopez devotee.',
+    country: 'ES', birthYear: 2005,
+  },
+  {
+    email: 'kenji@demo.local', name: 'kenji', displayName: 'Kenji',
+    rating: 1105, puzzleRating: 1090, wins: 14, losses: 14, draws: 4,
+    puzzleSolved: 29, puzzleStreak: 1, avatarColor: '#2563eb',
+    bio: 'Calm, solid, positional.',
+    country: 'JP', birthYear: 1988,
   },
 ]
 
@@ -106,6 +132,26 @@ async function main() {
       update: {}, // never clobber real edits on re-seed
       create: { ...u, passwordHash },
     })
+  }
+
+  // Backfill nationality / birth year on pre-existing demo accounts — only
+  // fills fields that are still empty, so real profile edits survive re-seeds.
+  for (const u of USERS) {
+    if (u.country == null && u.birthYear == null) continue
+    const cur = await db.user.findUnique({
+      where: { email: u.email },
+      select: { country: true, birthYear: true },
+    })
+    if (!cur) continue
+    if (cur.country == null || cur.birthYear == null) {
+      await db.user.update({
+        where: { email: u.email },
+        data: {
+          country: cur.country ?? u.country ?? null,
+          birthYear: cur.birthYear ?? u.birthYear ?? null,
+        },
+      })
+    }
   }
   console.log(`  users: ${USERS.length} (password: ${DEMO_PASSWORD})`)
 

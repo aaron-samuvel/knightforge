@@ -5,6 +5,7 @@ import { ArrowRight, Bot, BookOpen, Crown, Flame, GraduationCap, Puzzle, ShieldC
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { SITE } from '@/lib/config'
+import { countryToFlag } from '@/lib/countries'
 import { useApp, type View } from '@/lib/store'
 import type { LeaderboardEntry } from '@/lib/chess-types'
 
@@ -116,6 +117,9 @@ export function HomeView() {
                     <span className="flex items-center gap-2">
                       <span className="w-5 text-xs text-muted-foreground">{i + 1}</span>
                       <span className="font-semibold">{p.name}</span>
+                      {'country' in p && typeof p.country === 'string' && (
+                        <span aria-label={p.country}>{countryToFlag(p.country)}</span>
+                      )}
                     </span>
                     <span className="font-mono font-bold">{p.rating}</span>
                   </li>

@@ -8,7 +8,7 @@
 > **🔗 View directly:** **[github.com/aaron-samuvel/knightforge](https://github.com/aaron-samuvel/knightforge)**
 > · **Run it live:** `git clone https://github.com/aaron-samuvel/knightforge.git && cd knightforge && make setup && make dev` → open **http://localhost:3000**
 > · **Docker:** `make docker-up` → **http://localhost:3000**
-> · **Demo accounts:** `ada@demo.local` / `bruno@demo.local` / `cleo@demo.local` / `dev@demo.local` — password `knightforge-demo`
+> · **Demo accounts:** `ada@demo.local` / `nina@demo.local` / `rafa@demo.local` / `bruno@demo.local` / `kenji@demo.local` / `cleo@demo.local` / `dev@demo.local` — password `knightforge-demo`
 > · **Try Pro Review:** Analysis view → paste a PGN → "Run full review" (Brilliant/Blunder/accuracy per move)
 
 KnightForge is an original chess platform inspired by the capabilities players expect from

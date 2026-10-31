@@ -911,9 +911,22 @@ let serverStarted = false
 export function startChessGameServer(): void {
   if (serverStarted) return
   serverStarted = true
+  // Share the io instance via globalThis — Next/Turbopack can create separate
+  // module instances of this file for instrumentation vs API route bundles,
+  // so a module-local flag is not enough for cross-bundle access.
+  ;(globalThis as unknown as { __knightforgeIo?: Server }).__knightforgeIo = io
   httpServer.listen(PORT, () => {
     console.log(`Chess game server listening on port ${PORT}`)
   })
   // NOTE: no process-level signal handlers here — this server shares the
   // Next.js process and must never call process.exit().
+}
+
+/**
+ * Access the shared socket.io instance from other server-side modules
+ * (e.g. API routes broadcasting leaderboard updates). Returns null before
+ * the realtime server has started — callers must handle that gracefully.
+ */
+export function getIo(): Server | null {
+  return (globalThis as unknown as { __knightforgeIo?: Server }).__knightforgeIo ?? null
 }

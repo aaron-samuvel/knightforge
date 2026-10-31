@@ -110,6 +110,30 @@ export interface LeaderboardEntry {
   totalGames: number
 }
 
+/** Row of the real-time Global Ranking section (matches /api/leaderboard). */
+export interface GlobalRankingEntry {
+  rank: number
+  name: string
+  displayName: string | null
+  /** ISO 3166 alpha-2 nationality code */
+  country: string | null
+  /** Computed server-side from birthYear; null when not provided */
+  age: number | null
+  rating: number
+  wins: number
+  losses: number
+  draws: number
+  totalGames: number
+  avatarColor: string
+}
+
+/** Payload of the `leaderboard:update` realtime event. */
+export interface LeaderboardUpdatePayload {
+  ranking: GlobalRankingEntry[]
+  at: number
+}
+
+
 export const TIME_CONTROLS: { label: string; value: TimeControl }[] = [
   { label: '1+0', value: { initial: 60, increment: 0 } },
   { label: '3+2', value: { initial: 180, increment: 2 } },

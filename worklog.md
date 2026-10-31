@@ -543,3 +543,29 @@ Stage Summary:
 - CRITICAL FIX: realtime games no longer deadlock after the opponent's reply — Quick Match, bot games, and friend rooms are now fully playable end-to-end
 - Combined with P13, the user's complaint (home Quick Match + 5 modules "useless") is fully addressed: cards navigate AND the games they open actually work
 - Latest commit on GitHub: 1b9903e
+
+---
+Task ID: P15
+Agent: Z.ai Code (main)
+Task: Real-time Global Ranking section with nationality, age, and rating
+
+Work Log:
+- Schema: User.country (ISO 3166 alpha-2) + User.birthYear added, db:push OK
+- New src/lib/ranking.ts: getGlobalRanking(take) computes rank/displayName/country/age (from birthYear)/rating/record/avatarColor; broadcastRanking() emits `leaderboard:update` to all socket clients
+- getIo() exported from chess-game-server — initially module-local flag failed across Turbopack bundles (API route got its own module instance, io null); fixed by sharing the io instance via globalThis.__knightforgeIo (same pattern as the double-start guard)
+- /api/leaderboard: take param (1..100), extended entries (backward-compatible `leaderboard` key kept)
+- /api/games/finish: broadcastRanking() after rated Elo updates (fire-and-forget)
+- /api/profile PATCH: country/birthYear fields (zod-validated, 2-letter code, age 5..120, uppercase normalization) + broadcast on nationality/age change
+- Client: use-global-ranking.ts hook — initial REST load, live `leaderboard:update` socket listener, 30s fallback poll
+- leaderboard-view.tsx rebuilt: Global Ranking card with REAL-TIME badge, pulsing Live dot + "updated Xs ago" ticker, sticky-header table (# / Player / Age / Record / Rating), top-3 medals, emoji flags + country names, signed-in user row highlighted, max-h-96 scroll
+- lib/countries.ts: 50 curated countries + countryToFlag (regional-indicator emoji)
+- Profile view: Nationality select (flag + name) and Birth year select with save
+- Home "Top players" now shows flags too
+- Seed: 7 demo users (nina NO 28y 1420, ada IN 27y 1350, rafa ES 21y 1270, bruno BR 32y 1180, kenji JP 38y 1105, cleo GB 19y 990, dev US unset) + backfill that only fills empty fields
+- Browser verification (:81): three concurrent sessions — A/B played a rated Quick Match, C watched the ranking. On resignation the table updated LIVE without reload (rankB 816→832 2W, rankA 784→768 2L). Profile nationality change (ada IN→JP→IN) also propagated live. Zero console errors
+- Note: in the two-service Render topology the web process cannot emit through the chess service's io (separate processes); there the 30s fallback poll covers updates. Single-port/embedded topology is fully real-time
+- bun run lint: clean. README demo accounts updated (7)
+
+Stage Summary:
+- Global Ranking is live on the Leaderboard view with nationality flags, age, and rating, updating in real time via socket broadcast on rated-game finish and profile changes
+- Latest commits: pushed below

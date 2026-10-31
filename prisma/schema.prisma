@@ -25,6 +25,9 @@ model User {
   draws         Int      @default(0)
   puzzleSolved  Int      @default(0)
   puzzleStreak  Int      @default(0)
+  // Global ranking profile: ISO 3166 alpha-2 nationality (e.g. "IN") + birth year for age
+  country       String?
+  birthYear     Int?
   // JSON blob of UI preferences (board theme, piece set, sound, coordinates, privacy flags)
   preferences   String   @default("{}")
   createdAt     DateTime @default(now())

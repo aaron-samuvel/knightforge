@@ -166,6 +166,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Push the fresh global ranking to every connected client in real time.
+    // Fire-and-forget: response returns immediately, broadcast never blocks.
+    if (rated) {
+      const { broadcastRanking } = await import('@/lib/ranking')
+      void broadcastRanking()
+    }
+
     return NextResponse.json(game, { status: 201 })
   } catch (err) {
     console.error('[POST /api/games/finish] error:', err)

@@ -11,6 +11,20 @@ const profileSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, 'avatarColor must be a hex color like #10b981')
     .optional(),
   preferences: z.string().max(2048, 'preferences too large (max 2KB)').optional(),
+  // Global ranking profile: ISO 3166 alpha-2 code + birth year (age shown in rankings)
+  country: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/, 'country must be a 2-letter ISO code')
+    .nullable()
+    .optional(),
+  birthYear: z
+    .number()
+    .int()
+    .min(new Date().getFullYear() - 120, 'birth year too far in the past')
+    .max(new Date().getFullYear() - 5, 'players must be at least 5 years old')
+    .nullable()
+    .optional(),
 })
 
 export async function PATCH(req: NextRequest) {
@@ -37,6 +51,9 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
+    // Normalize nationality code to uppercase ("in" → "IN")
+    if (data.country) data.country = data.country.toUpperCase()
+
     // Validate preferences is parseable JSON before persisting.
     if (data.preferences !== undefined) {
       try {
@@ -53,6 +70,12 @@ export async function PATCH(req: NextRequest) {
       where: { id: sessionUser.id },
       data,
     })
+
+    // Nationality/age changes show up in the global ranking immediately.
+    if (data.country !== undefined || data.birthYear !== undefined) {
+      const { broadcastRanking } = await import('@/lib/ranking')
+      void broadcastRanking()
+    }
 
     return NextResponse.json({ user: toSessionUser(updated) })
   } catch (err) {

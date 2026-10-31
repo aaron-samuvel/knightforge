@@ -108,7 +108,7 @@ export function useAuth() {
   )
 
   const updateProfile = useCallback(
-    async (patch: Record<string, string>): Promise<AuthResult> => {
+    async (patch: Record<string, string | number | null>): Promise<AuthResult> => {
       try {
         const res = await fetch('/api/profile', {
           method: 'PATCH',

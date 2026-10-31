@@ -35,6 +35,10 @@ export interface SessionUser {
   draws: number
   puzzleSolved: number
   puzzleStreak: number
+  /** ISO 3166 alpha-2 nationality code (e.g. "IN"), shown in the global ranking */
+  country: string | null
+  /** Birth year — age shown in the global ranking */
+  birthYear: number | null
   preferences: string
 }
 

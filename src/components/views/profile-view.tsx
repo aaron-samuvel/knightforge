@@ -1,15 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Loader2, LogOut, Palette, Save, User, Volume2 } from 'lucide-react'
+import { Check, Flag, Loader2, LogOut, Palette, Save, User, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { BOARD_THEMES } from '@/lib/config'
+import { COUNTRIES, countryToFlag } from '@/lib/countries'
 import { useApp } from '@/lib/store'
 import { useAuth } from '@/hooks/use-auth'
 
@@ -23,6 +25,8 @@ export function ProfileView() {
   const [displayName, setDisplayName] = useState(user?.displayName ?? '')
   const [bio, setBio] = useState(user?.bio ?? '')
   const [avatarColor, setAvatarColor] = useState(user?.avatarColor ?? '#10b981')
+  const [country, setCountry] = useState(user?.country ?? '')
+  const [birthYear, setBirthYear] = useState(user?.birthYear ? String(user.birthYear) : '')
   const [saving, setSaving] = useState(false)
 
   if (!user) return null
@@ -33,6 +37,8 @@ export function ProfileView() {
       displayName,
       bio,
       avatarColor,
+      country: country || null,
+      birthYear: birthYear ? Number(birthYear) : null,
       preferences: JSON.stringify(prefs),
     })
     setSaving(false)
@@ -74,6 +80,42 @@ export function ProfileView() {
           <div className="space-y-1.5">
             <Label htmlFor="pr-bio">Bio</Label>
             <Textarea id="pr-bio" value={bio} maxLength={200} rows={2} onChange={(e) => setBio(e.target.value)} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="pr-country" className="inline-flex items-center gap-1.5">
+                <Flag className="h-3.5 w-3.5" /> Nationality
+              </Label>
+              <Select value={country || undefined} onValueChange={setCountry}>
+                <SelectTrigger id="pr-country" aria-label="Nationality">
+                  <SelectValue placeholder="Select a country…" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {COUNTRIES.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {countryToFlag(c.code)} {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Shown with your flag in the global ranking.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pr-birth">Birth year</Label>
+              <Select value={birthYear || undefined} onValueChange={setBirthYear}>
+                <SelectTrigger id="pr-birth" aria-label="Birth year">
+                  <SelectValue placeholder="Select a year…" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - 5 - i).map((y) => (
+                    <SelectItem key={y} value={String(y)}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Used to show your age in the global ranking.</p>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="pr-color">Avatar color</Label>

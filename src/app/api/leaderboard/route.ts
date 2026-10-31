@@ -1,30 +1,13 @@
-import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { NextRequest, NextResponse } from 'next/server'
+import { getGlobalRanking } from '@/lib/ranking'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const users = await db.user.findMany({
-      orderBy: { rating: 'desc' },
-      take: 10,
-      select: {
-        name: true,
-        rating: true,
-        wins: true,
-        losses: true,
-        draws: true,
-      },
-    })
+    const takeParam = Number(req.nextUrl.searchParams.get('take') ?? '50')
+    const take = Number.isFinite(takeParam) ? Math.min(Math.max(Math.trunc(takeParam), 1), 100) : 50
 
-    const leaderboard = users.map((user) => ({
-      name: user.name,
-      rating: user.rating,
-      wins: user.wins,
-      losses: user.losses,
-      draws: user.draws,
-      totalGames: user.wins + user.losses + user.draws,
-    }))
-
-    return NextResponse.json({ leaderboard })
+    const ranking = await getGlobalRanking(take)
+    return NextResponse.json({ leaderboard: ranking, ranking, at: Date.now() })
   } catch (err) {
     console.error('[GET /api/leaderboard] error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
