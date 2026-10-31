@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
 import { db } from '@/lib/db'
 import { rateLimitIp } from '@/lib/rate-limit'
+import { sendPasswordResetEmail } from '@/lib/mailer'
 
 const forgotSchema = z.object({
   email: z.string().trim().toLowerCase().email('Invalid email address'),
@@ -42,6 +43,9 @@ export async function POST(req: NextRequest) {
             expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
           },
         })
+        // Deliver the token: Resend API when RESEND_API_KEY is set,
+        // otherwise logged to the server console (sandbox has no SMTP).
+        void sendPasswordResetEmail(email, resetToken).catch(() => undefined)
       }
     } catch (dbErr) {
       // Log but still return the generic ok response — do not leak existence.

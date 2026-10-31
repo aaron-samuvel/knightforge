@@ -609,3 +609,22 @@ Work Log:
 Stage Summary:
 - KnightForge now has: audit-backed roadmap, brute-force protection, security headers, login audit trail, persisted Pro Reviews reachable from game history, and a documented OpenAPI
 - Commit + push below
+
+---
+Task ID: P18
+Agent: Z.ai Code (main)
+Task: "okay solve it" — close the solvable gaps from the audit
+
+Work Log:
+- SESSION REVOCATION (was "stolen token stays valid 30d"): new Session table (jti unique, userId, ip/ua, expiresAt, revokedAt). createSessionToken now mints a jti + registers the row; getSessionUser rejects revoked/expired/mismatched jtis (legacy no-jti tokens stay valid until expiry). Logout = real server-side revocation (+ optional allDevices). Password reset revokes ALL sessions of the user
+- VERIFIED stolen-token test: login -> copy cookie -> logout -> replay old token -> GET /api/auth/me => null (user rejected server-side)
+- AUTH_SECRET: 64-hex cryptographically random secret generated into .env (gitignored, NOT committed); auth.ts warns loudly in production when the dev fallback is used
+- EMAIL: src/lib/mailer.ts — Resend REST API (fetch, zero deps) when RESEND_API_KEY+MAIL_FROM are set, otherwise logs the reset token to the server console. Wired into forgot-password. Verified: console fallback printed the token in dev.log; response stays anti-enumeration-generic
+- RATE LIMITS completed on all sensitive endpoints: + /api/games/finish (30/5min), /api/puzzles/attempt (60/min), logout (20/min)
+- PER-USER HISTORY: /api/games supports name + offset params (name validated); dashboard history panel gets a "My games" toggle (signed-in only) — browser verified: only ada's games listed
+- .env.example documents RESEND_API_KEY / MAIL_FROM
+- bun run lint: clean; dev server restarted (new env); browser console zero errors
+
+Stage Summary:
+- Remaining audit gaps are now infrastructure-only (Postgres/Redis/Docker hosts) or user-action-only (GitHub token rotation, Resend key). Everything solvable in-sandbox is solved and verified
+- Commit + push below

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 const finishGameSchema = z.object({
   whiteName: z.string().trim().min(1).max(20),
@@ -48,6 +49,14 @@ interface PlayerUpdate {
 }
 
 export async function POST(req: NextRequest) {
+  // Abuse protection: 30 finished games per IP per 5 minutes
+  const rl = rateLimitIp(req, 'games-finish', { limit: 30, windowMs: 5 * 60_000 })
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+    )
+  }
   try {
     const body = await req.json()
     const parsed = finishGameSchema.safeParse(body)

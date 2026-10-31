@@ -3,6 +3,7 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { rateLimitIp } from '@/lib/rate-limit'
+import { revokeAllUserSessions } from '@/lib/auth'
 
 const resetSchema = z.object({
   token: z.string().trim().min(10, 'Invalid reset token'),
@@ -50,7 +51,11 @@ export async function POST(req: NextRequest) {
       }),
     ])
 
-    return NextResponse.json({ ok: true })
+    // Security: a password reset invalidates every live session of the user
+    // (stolen tokens stop working immediately).
+    const revoked = await revokeAllUserSessions(reset.userId)
+
+    return NextResponse.json({ ok: true, sessionsRevoked: revoked })
   } catch (err) {
     console.error('[POST /api/auth/reset-password] error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -40,6 +40,23 @@ model User {
   friendsReceived  Friend[]       @relation("FriendAddressee")
   resetTokens     PasswordReset[]
   loginHistory    LoginHistory[]
+  sessions        Session[]
+}
+
+// Auth module: server-side session registry — enables real logout and
+// revocation (a stolen JWT stops working the moment its row is revoked).
+model Session {
+  id        String    @id @default(cuid())
+  jti       String    @unique // JWT ID claim inside the signed session token
+  userId    String
+  ip        String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }
 
 // Security module: audit trail of sign-in attempts (success and failure).

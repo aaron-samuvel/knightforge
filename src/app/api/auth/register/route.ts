@@ -48,7 +48,10 @@ export async function POST(req: NextRequest) {
       data: { email, passwordHash, name, displayName: name },
     })
 
-    const token = await createSessionToken(user.id, user.name)
+    const token = await createSessionToken(user.id, user.name, {
+      ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
+      userAgent: req.headers.get('user-agent'),
+    })
     const res = NextResponse.json({ user: toSessionUser(user) }, { status: 201 })
     res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions())
     return res

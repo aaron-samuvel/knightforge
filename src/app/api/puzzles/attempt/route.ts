@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
 import { getSessionUser } from '@/lib/auth'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 const attemptSchema = z.object({
   puzzleId: z.string().min(1),
@@ -28,6 +29,14 @@ function ratingDelta(difficulty: number, solved: boolean): number {
  * Guests: → 200 { ok: true, guest: true }
  */
 export async function POST(req: NextRequest) {
+  // Abuse protection: 60 attempts per IP per minute
+  const rl = rateLimitIp(req, 'puzzles-attempt', { limit: 60, windowMs: 60_000 })
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+    )
+  }
   try {
     const body = await req.json().catch(() => null)
     const parsed = attemptSchema.safeParse(body)
