@@ -569,3 +569,24 @@ Work Log:
 Stage Summary:
 - Global Ranking is live on the Leaderboard view with nationality flags, age, and rating, updating in real time via socket broadcast on rated-game finish and profile changes
 - Latest commits: pushed below
+
+---
+Task ID: P16
+Agent: Z.ai Code (main)
+Task: Global Ranking clickable (player profiles) + SSE fallback transport + internet-enriched countries
+
+Work Log:
+- Clickable ranking: every Global Ranking row is now a keyboard-accessible button (role=button, tabIndex, Enter/Space, focus ring, aria-label). Clicking opens a player-profile dialog
+- New GET /api/players/[name] — public profile (never passwordHash): flag/country, age, rating, win rate, W/L/D, puzzle stats, bio, member-since, and the 8 most recent RATED games from the player's perspective with outcome badge + Elo delta
+- leaderboard-view.tsx: ProfileContent keyed by player name (fixes react-hooks/set-state-in-effect lint error), skeleton loading state, sr-only DialogTitle always present (fixes Radix a11y warning)
+- Home "Top players" rows are now buttons → navigate to the leaderboard view
+- SSE fallback ("other way"): new GET /api/leaderboard/stream (text/event-stream, 8s push, 5-min recycle, abort-safe). use-global-ranking hook now layers transports: socket.io (instant) → after 3s grace without a socket, EventSource SSE → 30s REST poll; also refetches on tab visibility. Header shows "Live", "Live · SSE" or "Polling"
+- Internet research (z-ai web_search): confirmed strongest chess federations → countries.ts expanded 50 → 98 (Armenia, Azerbaijan, Georgia, Kazakhstan, Croatia, Serbia, Iceland, Cuba, Colombia, Qatar, Mongolia, …)
+- SECURITY FIX: GET/POST /api/users returned the raw User row including passwordHash — now select only public fields, response wrapped as {user} (no internal consumers)
+- SEED FIX: seeded games stored displayName ("Ada") in whiteName/blackName while real games store username ("ada") — profile/history joins missed them. Seed now writes usernames; existing rows repaired in db (Ada→ada etc.)
+- Browser verification (:81): row click → dialog (Nina: 🇳🇴 Norway, 28y, 1420, 63% win rate, bio; Ada: "W vs bruno, by checkmate, +9" recent game); home top-player click → #leaderboard; blocked socket via network route → client auto-switched to "Live · SSE"; unblocked → "REAL-TIME" badge + Live; signed in as ada, PATCH birthYear 1999→1998 → her age column changed 27→28 live WITHOUT reload (socket broadcast), reverted; iPhone 14 viewport renders cleanly with flags/medals/you-highlight. Zero console errors
+- bun run lint: clean
+
+Stage Summary:
+- The Global Ranking is now fully interactive: click any player for their profile + recent rated games; realtime works over socket.io with an automatic SSE fallback; nationality list covers 98 chess nations
+- Latest commits: pushed below

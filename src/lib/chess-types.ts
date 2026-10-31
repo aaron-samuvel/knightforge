@@ -127,6 +127,44 @@ export interface GlobalRankingEntry {
   avatarColor: string
 }
 
+/** One recent rated game inside a player profile (perspective of that player). */
+export interface PlayerRecentGame {
+  id: string
+  whiteName: string
+  blackName: string
+  result: 'white' | 'black' | 'draw'
+  reason: string
+  /** Game outcome from this player's perspective */
+  outcome: 'win' | 'loss' | 'draw'
+  /** Elo delta for this player in that game */
+  ratingDelta: number
+  timeControl: string
+  moveCount: number
+  playedAt: string
+}
+
+/** Public player profile shown when clicking a row in the Global Ranking (GET /api/players/[name]). */
+export interface PlayerProfile {
+  name: string
+  displayName: string | null
+  bio: string | null
+  avatarColor: string
+  /** ISO 3166 alpha-2 nationality code */
+  country: string | null
+  /** Computed server-side from birthYear; null when not provided */
+  age: number | null
+  rating: number
+  puzzleRating: number
+  wins: number
+  losses: number
+  draws: number
+  totalGames: number
+  puzzleSolved: number
+  puzzleStreak: number
+  memberSince: string
+  recentGames: PlayerRecentGame[]
+}
+
 /** Payload of the `leaderboard:update` realtime event. */
 export interface LeaderboardUpdatePayload {
   ranking: GlobalRankingEntry[]

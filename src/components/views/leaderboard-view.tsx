@@ -1,9 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Flame, Globe2, Radio } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Flame, Globe2, Radio, Trophy } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -12,10 +19,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useApp } from '@/lib/store'
 import { countryName, countryToFlag } from '@/lib/countries'
 import { useGlobalRanking } from '@/hooks/use-global-ranking'
-import type { GlobalRankingEntry } from '@/lib/chess-types'
+import { REASON_LABELS } from '@/lib/chess-types'
+import type { GlobalRankingEntry, PlayerProfile } from '@/lib/chess-types'
 
 function RankBadge({ rank }: { rank: number }) {
   return (
@@ -36,22 +45,233 @@ function RankBadge({ rank }: { rank: number }) {
   )
 }
 
-function RankingRow({ player, isMe }: { player: GlobalRankingEntry; isMe: boolean }) {
+function PlayerAvatar({ color, name, size = 'sm' }: { color: string; name: string; size?: 'sm' | 'lg' }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${
+        size === 'lg' ? 'h-14 w-14 text-xl' : 'h-7 w-7 text-xs'
+      }`}
+      style={{ backgroundColor: color }}
+      aria-hidden
+    >
+      {name.slice(0, 1).toUpperCase()}
+    </span>
+  )
+}
+
+/** Fetches and renders the profile body — keyed by player name so switching
+ *  players remounts it with fresh state (no sync setState in effects). */
+function ProfileContent({ playerName }: { playerName: string }) {
+  const [profile, setProfile] = useState<PlayerProfile | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/players/${encodeURIComponent(playerName)}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => null)
+        if (cancelled) return
+        if (!r.ok || !d?.profile) {
+          setError(d?.error ?? 'Could not load this player.')
+          return
+        }
+        setProfile(d.profile as PlayerProfile)
+      })
+      .catch(() => {
+        if (!cancelled) setError('Network error — try again.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [playerName])
+
+  const flag = profile ? countryToFlag(profile.country) : ''
+
+  return (
+    <>
+      {profile === null && !error && (
+        <div className="space-y-3 p-2">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-14 w-14 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+          </div>
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      )}
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">{error}</p>
+      )}
+
+      {profile && (
+        <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-3 pr-6">
+                <PlayerAvatar color={profile.avatarColor} name={profile.displayName || profile.name} size="lg" />
+                <span className="min-w-0">
+                  <span className="block truncate text-lg leading-tight">
+                    {profile.displayName || profile.name}
+                    {flag && (
+                      <span className="ml-2" aria-label={countryName(profile.country) ?? undefined}>
+                        {flag}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block truncate text-sm font-normal text-muted-foreground">
+                    @{profile.name}
+                    {profile.country ? ` · ${countryName(profile.country)}` : ''}
+                    {profile.age !== null ? ` · ${profile.age} years` : ''}
+                  </span>
+                </span>
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                Ranking profile of {profile.name}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-lg bg-muted/60 p-3">
+                <div className="font-mono text-xl font-extrabold text-emerald-600">{profile.rating}</div>
+                <div className="text-xs text-muted-foreground">Rating</div>
+              </div>
+              <div className="rounded-lg bg-muted/60 p-3">
+                <div className="font-mono text-xl font-extrabold">{profile.totalGames}</div>
+                <div className="text-xs text-muted-foreground">Rated games</div>
+              </div>
+              <div className="rounded-lg bg-muted/60 p-3">
+                <div className="font-mono text-xl font-extrabold">
+                  {profile.totalGames > 0 ? Math.round((profile.wins / profile.totalGames) * 100) : 0}%
+                </div>
+                <div className="text-xs text-muted-foreground">Win rate</div>
+              </div>
+            </div>
+
+            {profile.bio && (
+              <p className="text-sm text-muted-foreground">{profile.bio}</p>
+            )}
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Record: <span className="font-semibold text-foreground">{profile.wins}W · {profile.losses}L · {profile.draws}D</span>
+              </span>
+              <span>Puzzles: <span className="font-semibold text-foreground">{profile.puzzleSolved}</span> solved</span>
+              <span>Joined: <span className="font-semibold text-foreground">
+                {new Date(profile.memberSince).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+              </span></span>
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">Recent rated games</h4>
+              {profile.recentGames.length === 0 ? (
+                <p className="rounded-lg bg-muted/50 py-4 text-center text-xs text-muted-foreground">
+                  No rated games yet.
+                </p>
+              ) : (
+                <ul className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
+                  {profile.recentGames.map((g) => {
+                    const opponent = g.whiteName === profile.name ? g.blackName : g.whiteName
+                    const asColor = g.whiteName === profile.name ? 'White' : 'Black'
+                    return (
+                      <li
+                        key={g.id}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Badge
+                            className={`h-5 justify-center px-1.5 text-[10px] font-bold text-white ${
+                              g.outcome === 'win'
+                                ? 'bg-emerald-600'
+                                : g.outcome === 'loss'
+                                  ? 'bg-red-600'
+                                  : 'bg-zinc-500'
+                            }`}
+                          >
+                            {g.outcome === 'win' ? 'W' : g.outcome === 'loss' ? 'L' : 'D'}
+                          </Badge>
+                          <span className="min-w-0 truncate">
+                            vs <span className="font-semibold">{opponent}</span>{' '}
+                            <span className="text-muted-foreground">
+                              ({asColor}, {REASON_LABELS[g.reason] ?? g.reason}, {g.timeControl})
+                            </span>
+                          </span>
+                        </span>
+                        <span
+                          className={`shrink-0 font-mono font-bold ${
+                            g.ratingDelta > 0
+                              ? 'text-emerald-600'
+                              : g.ratingDelta < 0
+                                ? 'text-red-600'
+                                : 'text-muted-foreground'
+                          }`}
+                        >
+                          {g.ratingDelta > 0 ? `+${g.ratingDelta}` : g.ratingDelta}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          </>
+      )}
+    </>
+  )
+}
+
+function PlayerProfileDialog({
+  playerName,
+  onClose,
+}: {
+  playerName: string | null
+  onClose: () => void
+}) {
+  return (
+    <Dialog open={playerName !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md" aria-describedby={undefined}>
+        {/* Always present for Radix a11y, even while the body is loading */}
+        <DialogTitle className="sr-only">Player profile</DialogTitle>
+        {playerName && <ProfileContent key={playerName} playerName={playerName} />}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RankingRow({
+  player,
+  isMe,
+  onSelect,
+}: {
+  player: GlobalRankingEntry
+  isMe: boolean
+  onSelect: (name: string) => void
+}) {
   const flag = countryToFlag(player.country)
   return (
-    <TableRow className={isMe ? 'bg-emerald-600/10 hover:bg-emerald-600/15' : undefined}>
+    <TableRow
+      tabIndex={0}
+      role="button"
+      aria-label={`Open profile of ${player.displayName || player.name}, rank ${player.rank}, rating ${player.rating}`}
+      onClick={() => onSelect(player.name)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(player.name)
+        }
+      }}
+      className={`cursor-pointer outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 ${
+        isMe ? 'bg-emerald-600/10 hover:bg-emerald-600/15' : 'hover:bg-muted/70'
+      }`}
+    >
       <TableCell className="w-12 pl-3">
         <RankBadge rank={player.rank} />
       </TableCell>
       <TableCell>
         <span className="flex min-w-0 items-center gap-2">
-          <span
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-            style={{ backgroundColor: player.avatarColor }}
-            aria-hidden
-          >
-            {(player.displayName || player.name).slice(0, 1).toUpperCase()}
-          </span>
+          <PlayerAvatar color={player.avatarColor} name={player.displayName || player.name} />
           <span className="min-w-0">
             <span className="flex items-center gap-1.5">
               <span className="truncate font-semibold">
@@ -83,7 +303,7 @@ function RankingRow({ player, isMe }: { player: GlobalRankingEntry; isMe: boolea
   )
 }
 
-function LiveUpdatedAgo({ at, live }: { at: number | null; live: boolean }) {
+function LiveUpdatedAgo({ at, transport }: { at: number | null; transport: 'socket' | 'sse' | 'poll' }) {
   const [, force] = useState(0)
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 1000)
@@ -92,9 +312,11 @@ function LiveUpdatedAgo({ at, live }: { at: number | null; live: boolean }) {
   if (!at) return null
   const sec = Math.max(0, Math.round((Date.now() - at) / 1000))
   const label = sec < 3 ? 'just now' : sec < 60 ? `${sec}s ago` : `${Math.floor(sec / 60)}m ago`
+  const live = transport !== 'poll'
+  const mode = transport === 'socket' ? 'Live' : transport === 'sse' ? 'Live · SSE' : 'Polling'
   return (
     <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="relative flex h-2 w-2" role="status" aria-label={live ? 'Live' : 'Offline'}>
+      <span className="relative flex h-2 w-2" role="status" aria-label={live ? 'Live' : 'Polling'}>
         {live && (
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
         )}
@@ -102,14 +324,17 @@ function LiveUpdatedAgo({ at, live }: { at: number | null; live: boolean }) {
           className={`relative inline-flex h-2 w-2 rounded-full ${live ? 'bg-emerald-500' : 'bg-zinc-400'}`}
         />
       </span>
-      {live ? 'Live' : 'Offline'} · updated {label}
+      {mode} · updated {label}
     </span>
   )
 }
 
 export function LeaderboardView() {
   const user = useApp((s) => s.user)
-  const { ranking, lastUpdate, live } = useGlobalRanking(50)
+  const { ranking, lastUpdate, transport } = useGlobalRanking(50)
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null)
+
+  const closeDialog = useCallback(() => setSelectedPlayer(null), [])
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -119,7 +344,7 @@ export function LeaderboardView() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Global ranking by Elo rating (K=32). Updates in real time the moment a rated
-          game finishes — no refresh needed.
+          game finishes — no refresh needed. Click any player to see their profile.
         </p>
       </div>
 
@@ -130,12 +355,12 @@ export function LeaderboardView() {
               <Globe2 className="h-4 w-4 text-emerald-600" /> Global Ranking
             </span>
             <span className="inline-flex items-center gap-2">
-              {live && (
+              {transport !== 'poll' && (
                 <Badge className="bg-emerald-600 text-white" aria-hidden>
                   <Radio className="mr-1 h-3 w-3" /> REAL-TIME
                 </Badge>
               )}
-              <LiveUpdatedAgo at={lastUpdate} live={live} />
+              <LiveUpdatedAgo at={lastUpdate} transport={transport} />
             </span>
           </CardTitle>
         </CardHeader>
@@ -168,6 +393,7 @@ export function LeaderboardView() {
                       key={p.name}
                       player={p}
                       isMe={user?.name === p.name}
+                      onSelect={setSelectedPlayer}
                     />
                   ))}
                 </TableBody>
@@ -177,11 +403,16 @@ export function LeaderboardView() {
         </CardContent>
       </Card>
 
-      <p className="text-xs text-muted-foreground">
-        Nationality and age come from each player&apos;s profile — set yours in{' '}
-        <span className="font-medium">Profile → Nationality / Birth year</span> to appear
-        with your flag on the global board.
+      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+        <Trophy className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          Every row is clickable — open a player&apos;s profile for rating, win rate and
+          recent games. Nationality and age come from each player&apos;s profile (set yours
+          in <span className="font-medium">Profile → Nationality / Birth year</span>).
+        </span>
       </p>
+
+      <PlayerProfileDialog playerName={selectedPlayer} onClose={closeDialog} />
     </div>
   )
 }

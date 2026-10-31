@@ -156,7 +156,9 @@ async function main() {
   console.log(`  users: ${USERS.length} (password: ${DEMO_PASSWORD})`)
 
   const existing = await db.game.count({
-    where: { whiteName: { in: USERS.map((u) => u.displayName) } },
+    where: {
+      whiteName: { in: USERS.flatMap((u) => [u.name, u.displayName]) },
+    },
   })
   if (existing === 0) {
     const byName = new Map(USERS.map((u) => [u.name, u]))
@@ -177,7 +179,10 @@ async function main() {
       ])
       await db.game.create({
         data: {
-          whiteName: w.displayName, blackName: g.black,
+          // Store the actual username (lowercase), matching how real games
+          // record players — profile/history queries join on User.name.
+          whiteName: w.name,
+          blackName: bIsBot ? g.black : byName.get(g.black)!.name,
           whiteUserId: wu?.id, blackUserId: bu?.id,
           whiteRating: w.rating, blackRating: bRating,
           whiteRatingDelta: wDelta, blackRatingDelta: bDelta,

@@ -113,15 +113,22 @@ export function HomeView() {
             ) : (
               <ol className="space-y-2 text-sm">
                 {leaders.map((p, i) => (
-                  <li key={p.name} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
-                    <span className="flex items-center gap-2">
-                      <span className="w-5 text-xs text-muted-foreground">{i + 1}</span>
-                      <span className="font-semibold">{p.name}</span>
-                      {'country' in p && typeof p.country === 'string' && (
-                        <span aria-label={p.country}>{countryToFlag(p.country)}</span>
-                      )}
-                    </span>
-                    <span className="font-mono font-bold">{p.rating}</span>
+                  <li key={p.name}>
+                    <button
+                      type="button"
+                      aria-label={`View ${p.name} in the leaderboard`}
+                      onClick={() => setView('leaderboard')}
+                      className="flex w-full items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 active:bg-emerald-600/5"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="w-5 text-xs text-muted-foreground">{i + 1}</span>
+                        <span className="font-semibold">{p.name}</span>
+                        {'country' in p && typeof p.country === 'string' && (
+                          <span aria-label={p.country}>{countryToFlag(p.country)}</span>
+                        )}
+                      </span>
+                      <span className="font-mono font-bold">{p.rating}</span>
+                    </button>
                   </li>
                 ))}
               </ol>

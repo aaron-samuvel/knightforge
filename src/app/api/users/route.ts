@@ -26,9 +26,10 @@ export async function POST(req: NextRequest) {
       where: { name },
       update: {},
       create: { name },
+      select: { id: true, name: true, displayName: true, avatarColor: true, rating: true },
     })
 
-    return NextResponse.json(user, { status: 201 })
+    return NextResponse.json({ user }, { status: 201 })
   } catch (err) {
     console.error('[POST /api/users] error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -42,12 +43,32 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing "name" query parameter' }, { status: 400 })
     }
 
-    const user = await db.user.findUnique({ where: { name: name.trim() } })
+    const user = await db.user.findUnique({
+      where: { name: name.trim() },
+      // Public lookup — never expose credentials
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        avatarColor: true,
+        bio: true,
+        country: true,
+        birthYear: true,
+        rating: true,
+        puzzleRating: true,
+        wins: true,
+        losses: true,
+        draws: true,
+        puzzleSolved: true,
+        puzzleStreak: true,
+        createdAt: true,
+      },
+    })
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    return NextResponse.json(user)
+    return NextResponse.json({ user })
   } catch (err) {
     console.error('[GET /api/users] error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
