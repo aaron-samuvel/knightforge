@@ -269,7 +269,7 @@ export function LearnView() {
     <div className="space-y-6">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Learn Chess</h2>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Learn Chess</h1>
           <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800" variant="outline">
             Beginner curriculum — 8 lessons
           </Badge>

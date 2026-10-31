@@ -218,7 +218,7 @@ export function OpeningsView() {
     <div className="space-y-6">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Openings Explorer</h2>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Openings Explorer</h1>
           <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800" variant="outline">
             {OPENINGS_DATASET_LABEL}
           </Badge>
@@ -252,7 +252,7 @@ export function OpeningsView() {
             type="button"
             onClick={() => setActiveTag('all')}
             aria-pressed={activeTag === 'all'}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+            className={`inline-flex min-h-[38px] items-center rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
               activeTag === 'all'
                 ? 'border-emerald-600 bg-emerald-600 text-white'
                 : 'border-border bg-background text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700'
@@ -266,7 +266,7 @@ export function OpeningsView() {
               type="button"
               onClick={() => setActiveTag(tag)}
               aria-pressed={activeTag === tag}
-              className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition ${
+              className={`inline-flex min-h-[38px] items-center rounded-full border px-3.5 py-1.5 text-xs font-medium capitalize transition ${
                 activeTag === tag
                   ? 'border-emerald-600 bg-emerald-600 text-white'
                   : 'border-border bg-background text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700'

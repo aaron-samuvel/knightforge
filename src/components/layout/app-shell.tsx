@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   BarChart3,
   BookOpen,
@@ -15,6 +15,7 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Menu,
   Puzzle,
   Swords,
   User,
@@ -31,6 +32,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
 import { SITE } from '@/lib/config'
@@ -63,7 +65,13 @@ const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; auth?: bool
   { view: 'profile', label: 'Profile', icon: <User className="h-4 w-4" />, auth: true },
 ]
 
-const MOBILE_ITEMS: View[] = ['home', 'play', 'puzzles', 'learn', 'dashboard']
+const MOBILE_ITEMS: View[] = ['home', 'play', 'puzzles', 'learn']
+
+/** Maps a location hash to a view (room deep links open the friend flow). */
+function viewFromHash(hash: string): View | null {
+  if (hash.startsWith('room=')) return 'friend'
+  return NAV_ITEMS.some((n) => n.view === hash) ? (hash as View) : null
+}
 
 /** Deep links: #room=CODE opens the join flow; #view-name opens a view. Runs once on client. */
 let deepLinkHandled = false
@@ -265,11 +273,37 @@ export function AppShell() {
   const user = useApp((s) => s.user)
   const setAuthModal = useApp((s) => s.setAuthModal)
   const { logout } = useAuth()
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useState(() => {
     handleDeepLink()
     return null
   })
+
+  // Browser back/forward: sync the view from the URL so every view behaves
+  // like a real page (pushState entries created by setView are popped here).
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const v = viewFromHash(window.location.hash.slice(1))
+      useApp.setState({ view: v ?? 'home' })
+      window.scrollTo({ top: 0 })
+    }
+    window.addEventListener('popstate', syncFromLocation)
+    window.addEventListener('hashchange', syncFromLocation)
+    return () => {
+      window.removeEventListener('popstate', syncFromLocation)
+      window.removeEventListener('hashchange', syncFromLocation)
+    }
+  }, [])
+
+  const navigate = (v: View) => {
+    setMoreOpen(false)
+    setView(v)
+  }
+
+  const moreItems = NAV_ITEMS.filter(
+    (n) => !MOBILE_ITEMS.includes(n.view) && (!n.auth || user)
+  )
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -310,7 +344,7 @@ export function AppShell() {
             {user ? (
               <>
                 <button
-                  className="flex items-center gap-2 rounded-full py-1 pl-1 pr-3 transition hover:bg-accent"
+                  className="flex min-h-[44px] items-center gap-2 rounded-full py-1 pl-1 pr-3 transition hover:bg-accent"
                   onClick={() => setView('profile')}
                   aria-label="Open profile"
                 >
@@ -362,24 +396,25 @@ export function AppShell() {
       <footer className="mt-auto border-t bg-card pb-[calc(env(safe-area-inset-bottom)+64px)] lg:pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
           <p>{SITE.name} — free online chess. Independently built; not affiliated with any commercial chess platform.</p>
-          <nav aria-label="Legal" className="flex items-center gap-3">
-            <button className="hover:text-foreground" onClick={() => setView('privacy')}>
+          <nav aria-label="Legal" className="flex flex-wrap items-center gap-1">
+            <button className="inline-flex min-h-[36px] items-center rounded px-2 hover:bg-accent hover:text-foreground" onClick={() => setView('privacy')}>
               Privacy
             </button>
-            <button className="hover:text-foreground" onClick={() => setView('terms')}>
+            <button className="inline-flex min-h-[36px] items-center rounded px-2 hover:bg-accent hover:text-foreground" onClick={() => setView('terms')}>
               Terms
             </button>
-            <button className="hover:text-foreground" onClick={() => setView('contact')}>
+            <button className="inline-flex min-h-[36px] items-center rounded px-2 hover:bg-accent hover:text-foreground" onClick={() => setView('contact')}>
               Contact
             </button>
-            <a className="font-medium hover:text-emerald-600" href={SITE.githubUrl} target="_blank" rel="noreferrer">
+            <a className="inline-flex min-h-[36px] items-center rounded px-2 font-medium hover:text-emerald-600" href={SITE.githubUrl} target="_blank" rel="noreferrer">
               GitHub
             </a>
           </nav>
         </div>
       </footer>
 
-      {/* Mobile bottom navigation */}
+      {/* Mobile bottom navigation — 4 primary destinations + a More sheet that
+          reaches EVERY view, so nothing is hidden on touch devices. */}
       <nav
         aria-label="Mobile"
         className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
@@ -389,9 +424,9 @@ export function AppShell() {
           return (
             <button
               key={v}
-              onClick={() => setView(v)}
+              onClick={() => navigate(v)}
               aria-current={view === v ? 'page' : undefined}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${
+              className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium ${
                 view === v ? 'text-emerald-600' : 'text-muted-foreground'
               }`}
             >
@@ -400,7 +435,44 @@ export function AppShell() {
             </button>
           )
         })}
+        <button
+          onClick={() => setMoreOpen(true)}
+          aria-label="More pages"
+          aria-expanded={moreOpen}
+          className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium ${
+            moreItems.some((n) => n.view === view) ? 'text-emerald-600' : 'text-muted-foreground'
+          }`}
+        >
+          <Menu className="h-4 w-4" />
+          More
+        </button>
       </nav>
+
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto rounded-t-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
+          <SheetHeader className="px-0 pb-2 text-left">
+            <SheetTitle>All KnightForge pages</SheetTitle>
+            <SheetDescription>Everything on the site, one tap away.</SheetDescription>
+          </SheetHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {NAV_ITEMS.filter((n) => !n.auth || user).map((item) => (
+              <button
+                key={item.view}
+                onClick={() => navigate(item.view)}
+                aria-current={view === item.view ? 'page' : undefined}
+                className={`flex min-h-[52px] items-center gap-3 rounded-lg border px-3 py-2 text-sm font-medium transition active:scale-[0.98] ${
+                  view === item.view
+                    ? 'border-emerald-600/40 bg-emerald-600/10 text-emerald-700'
+                    : 'bg-card text-foreground hover:bg-accent'
+                }`}
+              >
+                <span className={view === item.view ? 'text-emerald-600' : 'text-muted-foreground'}>{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <AuthModal />
     </div>

@@ -123,8 +123,11 @@ export function PlayView({ mode }: { mode: Mode }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        {/* Board column */}
-        <section aria-label="Chess board" className="space-y-2">
+        {/* Board column — on mobile pre-game the setup panel comes first */}
+        <section
+          aria-label="Chess board"
+          className={`space-y-2 ${playing || over ? '' : 'order-2 lg:order-1'}`}
+        >
           {playing || over ? (
             <>
               {playing && !chess.opponentConnected && (
@@ -231,7 +234,7 @@ export function PlayView({ mode }: { mode: Mode }) {
         </section>
 
         {/* Side panel */}
-        <section aria-label="Game controls">
+        <section aria-label="Game controls" className={playing || over ? '' : 'order-1 lg:order-2'}>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">

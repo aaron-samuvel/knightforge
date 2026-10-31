@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -28,6 +28,15 @@ export const metadata: Metadata = {
     siteName: "KnightForge",
     type: "website",
   },
+};
+
+// Mobile-first viewport: viewport-fit=cover lets env(safe-area-inset-*) work on
+// notched devices (bottom nav + footer already compensate for the insets).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#059669",
 };
 
 export default function RootLayout({

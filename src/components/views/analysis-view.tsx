@@ -481,7 +481,7 @@ export function AnalysisView() {
                   return (
                     <button
                       key={idx}
-                      className={`flex items-center gap-1 rounded px-2 py-0.5 text-left font-mono hover:bg-accent ${
+                      className={`flex min-h-[36px] items-center gap-1 rounded px-2 py-1 text-left font-mono hover:bg-accent ${
                         cursor === idx + 1 ? 'bg-accent font-semibold' : ''
                       }`}
                       onClick={() => setCursor(idx + 1)}
@@ -567,7 +567,7 @@ export function AnalysisView() {
                     <button
                       key={i}
                       onClick={() => playPvPrefix(i + 1)}
-                      className={`rounded px-1.5 py-0.5 font-mono text-xs hover:bg-accent ${
+                      className={`inline-flex min-h-[32px] items-center rounded px-2 py-1 font-mono text-xs hover:bg-accent ${
                         i === 0 ? 'bg-emerald-100 font-semibold text-emerald-900' : 'bg-muted'
                       }`}
                     >

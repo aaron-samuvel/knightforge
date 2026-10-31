@@ -82,7 +82,11 @@ export const useApp = create<AppState>((set, get) => ({
   setView: (v) => {
     set({ view: v })
     if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', `#${v}`)
+      // pushState (not replaceState) so the browser back/forward buttons work
+      // like real page navigation; each view gets its own shareable URL.
+      if (window.location.hash !== `#${v}`) {
+        window.history.pushState({ kfView: v }, '', `#${v}`)
+      }
       window.scrollTo({ top: 0 })
     }
   },

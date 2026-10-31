@@ -411,7 +411,7 @@ export function PuzzlesView() {
 
   if (!active) {
     return (
-      <section aria-label="Puzzle training" className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
+      <section aria-label="Puzzle training" className="mx-auto w-full max-w-3xl space-y-6 py-2">
         <PuzzlesHeader />
         <Card>
           <CardContent className="space-y-4 p-4 sm:p-6">
@@ -429,7 +429,7 @@ export function PuzzlesView() {
   const interactive = status === 'solving' && userTurn
 
   return (
-    <section aria-label="Puzzle training" className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
+    <section aria-label="Puzzle training" className="mx-auto w-full max-w-3xl space-y-6 py-2">
       <style>{`
         @keyframes kf-puzzle-shake {
           0%, 100% { transform: translateX(0); }
@@ -663,12 +663,12 @@ function PuzzlesHeader() {
   return (
     <header className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white">
             <Target className="h-5 w-5" aria-hidden />
           </span>
           Puzzle Training
-        </h2>
+        </h1>
         {user ? (
           <div className="flex flex-wrap items-center gap-2" aria-label="Your puzzle stats">
             <Badge variant="outline" className="border-emerald-200 text-emerald-700">
