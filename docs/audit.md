@@ -82,7 +82,32 @@ rules forbid rebuilding a working frontend or breaking the deployed site. Theref
 6. Postgres migration (provider swap) on Render managed Postgres.
 7. Email delivery (Resend/SES) behind the existing reset-token flow.
 
-## 4. Credentials & infrastructure still missing (honest list)
+## 5. Final production-readiness status (P20)
+
+**GitHub security:** a fine-grained PAT is embedded only in this machine's git
+remote URL (`.git/config`) — a full scan of the working tree **and** all git
+history found zero token patterns. The token must still be revoked/rotated by
+the owner (it is exposed-at-rest in the URL) with `Contents` **and** `Workflows`
+scopes; the rotation runbook is in `docs/production.md` §1. The CI-vitest commit
+(`f6e00e5`) is waiting for the workflow-scoped token.
+
+**Testing:** 25 Vitest tests green (Elo, Argon2id, rate limiter, route-handler
+integration); lint clean; live E2E on the current build verified security
+headers, registration (Argon2id hash stored), login, wrong-password rejection,
+no `passwordHash` in API responses, 429 rate limiting, and socket.io transport.
+
+**Redis:** not a runtime dependency (in-memory rate limiter + in-process
+matchmaking). Provision nothing until multi-replica scaling is needed.
+
+**PostgreSQL:** schema is Postgres-compatible; migration runbook in
+`docs/production.md` §2. Blocked only on the owner provisioning a database.
+
+**Deployment:** `render.yaml` blueprint + health check + deploy button are in
+place; the sandbox-hosted site (knightforge.space-z.ai) runs an older build
+(pre-P17) and needs a redeploy. Any custom Render deployment follows
+`docs/production.md` §4.
+
+### 6. Credentials & infrastructure still missing (honest list)
 
 - **Database**: managed Postgres URL (Render dashboard → create → paste `DATABASE_URL`).
 - **Email SMTP/API key**: needed for real password-reset + verification emails.

@@ -46,7 +46,7 @@ self-hostable, open product.
 | **Analysis** | Post-game review (Stockfish WASM, depth 13–15 in your browser): blunder/mistake/inaccuracy/good/excellent/best/book classification, accuracy %, evaluation graph, best-move arrows, principal variation, opening identification, alternative-move replay; free Analysis Board with PGN/FEN input |
 | **Puzzles** | 18 chess.js-validated puzzles (mate-in-1, mate-in-2, tactics), daily puzzle, hints, streak, puzzle rating, attempts persisted for signed-in players |
 | **Learn** | 8-lesson beginner curriculum with interactive demo boards and progress tracking; 16-opening explorer with ECO codes, practice mode, and personal notes |
-| **Accounts** | Email/password registration (bcrypt), JWT session cookies (httpOnly), password reset, profile customization (display name, bio, avatar color), preferences |
+| **Accounts** | Email/password registration (Argon2id), JWT session cookies (httpOnly, server-side revocable), password reset, profile customization (display name, bio, avatar color), preferences |
 | **Ratings** | Elo (K=32), updated server-side only for rated games between registered players; leaderboard; per-game rating deltas |
 | **Stats** | Player dashboard: rating, win rate, W/L/D, puzzle rating/streak/solved, game history |
 
@@ -68,7 +68,7 @@ self-hostable, open product.
 | Engine | **Stockfish 10 WASM** (`public/engine/`, GPL/LGPL — see licences) | Runs in a Web Worker, 100% client-side analysis |
 | Realtime | **Socket.io 4.8** mini-service (`mini-services/chess-game`, port 3003) | Authoritative game server |
 | Database | **Prisma + SQLite** (dev) / PostgreSQL-ready schema | Swap `datasource` provider for Supabase/Neon |
-| Auth | Custom: bcryptjs + jose JWT in httpOnly cookies | Server-side session verification on every protected route |
+| Auth | Custom: Argon2id (hash-wasm) + jose JWT in httpOnly cookies | Server-side session verification on every protected route |
 | Validation | **Zod** on all API inputs | |
 
 Documented deviations from a "typical" production build:
@@ -111,7 +111,7 @@ flowchart LR
 
 See [docs/database.md](docs/database.md) for the full reference. Core tables:
 
-- `User` — credentials (bcrypt hash), profile, game & puzzle ratings, W/L/D, preferences
+- `User` — credentials (Argon2id hash), profile, game & puzzle ratings, W/L/D, preferences
 - `Game` — canonical record: players (+ optional user links), ratings & deltas, result, reason,
   **PGN**, time control, rated flag, game type (`ranked` | `bot` | `private`), room code
 - `Puzzle` / `PuzzleAttempt` — validated seed puzzles and per-user attempts
@@ -151,7 +151,7 @@ sequenceDiagram
   participant A as /api/auth/*
   participant DB as Database
   U->>A: POST /register {email, password, name}
-  A->>DB: bcrypt hash (10 rounds), insert User
+  A->>DB: Argon2id hash, insert User
   A-->>U: Set-Cookie kf_session (httpOnly, signed JWT, 30d)
   U->>A: GET /api/auth/me (cookie)
   A-->>U: { user } or { user: null }
@@ -269,7 +269,7 @@ step-by-step guide and honest limits):
 
 ## Security considerations (summary)
 
-Server-side validation everywhere; bcrypt password hashing; signed httpOnly session cookies;
+Server-side validation everywhere; Argon2id password hashing (legacy bcrypt rehashes on login); signed httpOnly session cookies;
 no client-trusted game results; Elo only from server-recorded rated games; anti-enumeration
 password reset; generic auth errors; Zod validation; `.env` secrets excluded from git.
 Full details and honest gaps: [docs/security.md](docs/security.md).
@@ -318,5 +318,5 @@ Honest list — nothing here is claimed to be complete if it isn't:
   as WASM (thank you, T. Romstad, M. Costalba, J. Kiiski and the Stockfish community);
   the `public/engine/` files are distributed under their upstream licence (see
   `public/engine/` source package). **shadcn/ui**, **Tailwind CSS**, **Socket.io**,
-  **Prisma**, **jose**, **bcryptjs** — their respective open-source licences.
+  **Prisma**, **jose**, **hash-wasm** — their respective open-source licences.
 

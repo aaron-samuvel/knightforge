@@ -650,3 +650,20 @@ Stage Summary:
 
 P19 addendum: the CI-vitest step is committed locally but GitHub rejected the
 push (embedded PAT lacks `workflow` scope). Push it after rotating the token.
+
+---
+Task ID: P20
+Agent: Z.ai Code (main)
+Task: Final production readiness & deployment audit
+
+Work Log:
+- Audited repo, docs/audit.md, render.yaml, Dockerfile, deployment docs, remote config
+- GITHUB SECURITY: scanned working tree AND full git history for token patterns (ghp_/github_pat_/gho_/ghs_) — zero hits; the PAT exists ONLY in the git remote URL (.git/config, value never printed). Rotation runbook written (revoke fine-grained PAT, new token with Contents + Workflows scopes, deliver via secrets mechanism). CI-vitest commit f6e00e5 still blocked pending workflow scope
+- REDIS VERDICT: not a runtime dependency — only a documented swap path comment in rate-limit.ts; nothing in package.json. No Redis provisioning needed; decision + reasoning documented
+- TESTING: 25/25 vitest green, lint clean; live E2E: security headers present, register→argon2id hash in DB (verified in sqlite directly, value not printed), login OK, wrong-pw 401, no passwordHash in API responses, 429 rate limiting, socket.io polling transport alive; test account cleaned up
+- DEPLOYED SITE CHECK: knightforge.space-z.ai serves an OLDER build (/api/openapi.json and /api/analyses 404 → pre-P17) — redeploy needed to pick up P17-P19
+- DOCS: new docs/production.md (Render+Postgres checklist with [YOU]/[AUTO] markers, env var table, AUTH_SECRET generation, Redis "not required" verdict), new docs/troubleshooting.md (symptom→cause→fix incl. the stale-Prisma-client restart gotcha), .env.example PostgreSQL instructions, README bcrypt→Argon2id corrections, audit.md §5 final status
+- bun run lint: clean
+
+Stage Summary:
+- Code is production-ready and verified; remaining items are owner-credential actions: revoke+rotate the PAT (workflow scope), provision Postgres, set DATABASE_URL/AUTH_SECRET on Render, redeploy
