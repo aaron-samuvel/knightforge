@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The sandbox preview panel serves the app from *.space-z.ai while the dev
+  // server runs on localhost. Without this, Next.js logs a cross-origin
+  // warning for every /_next/* asset request and the dev-tools indicator
+  // shows it as an issue badge.
+  allowedDevOrigins: ["*.space-z.ai"],
   // socket.io runs inside the Next.js Node process (see src/instrumentation.ts)
   serverExternalPackages: ["socket.io"],
   // Portability: on single-port hosts (Render, Railway, Fly, plain Docker
