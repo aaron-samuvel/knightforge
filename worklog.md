@@ -647,3 +647,6 @@ Work Log:
 
 Stage Summary:
 - Every KNIGHTFORGE ULTIMATE item that is solvable in this sandbox is now implemented and verified: Argon2id, session revocation (P18), friends, saved-reviews library, OpenAPI, Docker/CI + a real 25-test Vitest suite. Remaining gaps are credential-only: managed Postgres URL (DATABASE_URL), Redis host, Resend API key, GitHub PAT rotation — documented in docs/audit.md §4
+
+P19 addendum: the CI-vitest step is committed locally but GitHub rejected the
+push (embedded PAT lacks `workflow` scope). Push it after rotating the token.
