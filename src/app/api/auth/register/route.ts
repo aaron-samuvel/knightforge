@@ -3,6 +3,7 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 import {
   createSessionToken,
   sessionCookieOptions,
@@ -23,6 +24,14 @@ const registerSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // Abuse protection: 5 registrations per IP per 10 minutes
+    const rl = rateLimitIp(req, 'register', { limit: 5, windowMs: 10 * 60_000 })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many registrations from this address. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      )
+    }
     const body = await req.json().catch(() => null)
     const parsed = registerSchema.safeParse(body)
     if (!parsed.success) {

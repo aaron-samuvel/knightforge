@@ -2,7 +2,8 @@
 
 ## Phase 11 — Production hardening (next)
 - [ ] Service token on `POST /api/games/finish` + unique constraint on game id
-- [ ] Rate limiting middleware (auth, finish, puzzles attempt)
+- [x] P17: security headers (nosniff/SAMEORIGIN/referrer/permissions), LoginHistory audit, GameAnalysis persistence, /api index + /api/openapi.json, history Review button -> Pro Review auto-save (docs/audit.md)
+- [x] Rate limiting middleware — auth endpoints done in P17 (login 8/5min, register 5/10min, forgot 4/10min, reset 8/10min); finish/puzzles-attempt pending
 - [ ] CSRF tokens; Dependabot/bun audit in GitHub Actions
 - [ ] Committed Vitest unit suite + Playwright E2E (specs already documented in docs/testing.md)
 - [ ] Swap view-router for real App Router routes (mapping in docs/architecture.md)

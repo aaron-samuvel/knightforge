@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { History, RefreshCw } from 'lucide-react'
+import { History, RefreshCw, Loader2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useApp } from '@/lib/store'
 import type { HistoryGame } from '@/lib/chess-types'
 
 export function resultLabel(game: Pick<HistoryGame, 'result'>): string {
@@ -13,6 +14,27 @@ export function resultLabel(game: Pick<HistoryGame, 'result'>): string {
 export function HistoryPanel({ refreshKey }: { refreshKey: number }) {
   const [games, setGames] = useState<HistoryGame[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingReviewId, setLoadingReviewId] = useState<string | null>(null)
+  const setPendingAnalysisPgn = useApp((s) => s.setPendingAnalysisPgn)
+  const setPendingAnalysisGameId = useApp((s) => s.setPendingAnalysisGameId)
+  const setView = useApp((s) => s.setView)
+
+  /** Fetch the stored PGN and hand the game to the Pro Review analysis view. */
+  const openReview = (gameId: string) => {
+    if (loadingReviewId) return
+    setLoadingReviewId(gameId)
+    fetch(`/api/games/${encodeURIComponent(gameId)}/pgn`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.pgn) {
+          setPendingAnalysisGameId(gameId)
+          setPendingAnalysisPgn(d.pgn)
+          setView('analysis')
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setLoadingReviewId(null))
+  }
 
   const load = () => {
     setLoading(true)
@@ -69,12 +91,29 @@ export function HistoryPanel({ refreshKey }: { refreshKey: number }) {
                     {new Date(g.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <div className="flex shrink-0 flex-col items-end">
+                <div className="flex shrink-0 flex-col items-end gap-1">
                   <span className="font-mono text-sm font-bold">{resultLabel(g)}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {g.whiteRatingDelta >= 0 ? `+${g.whiteRatingDelta}` : g.whiteRatingDelta} /{' '}
-                    {g.blackRatingDelta >= 0 ? `+${g.blackRatingDelta}` : g.blackRatingDelta}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {g.whiteRatingDelta >= 0 ? `+${g.whiteRatingDelta}` : g.whiteRatingDelta} /{' '}
+                      {g.blackRatingDelta >= 0 ? `+${g.blackRatingDelta}` : g.blackRatingDelta}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      aria-label={`Review ${g.whiteName} vs ${g.blackName} with Pro Review`}
+                      disabled={loadingReviewId !== null}
+                      onClick={() => openReview(g.id)}
+                    >
+                      {loadingReviewId === g.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Play className="h-3 w-3" />
+                      )}
+                      Review
+                    </Button>
+                  </div>
                 </div>
               </li>
             ))}

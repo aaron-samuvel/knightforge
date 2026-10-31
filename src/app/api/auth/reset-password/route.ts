@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 const resetSchema = z.object({
   token: z.string().trim().min(10, 'Invalid reset token'),
@@ -10,6 +11,14 @@ const resetSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // Abuse protection: 8 attempts per IP per 10 minutes
+    const rl = rateLimitIp(req, 'reset-password', { limit: 8, windowMs: 10 * 60_000 })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many attempts. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      )
+    }
     const body = await req.json().catch(() => null)
     const parsed = resetSchema.safeParse(body)
     if (!parsed.success) {

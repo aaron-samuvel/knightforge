@@ -95,9 +95,15 @@ export function AnalysisView() {
   // consumed exactly once per pending value).
   const pendingPgn = useApp((s) => s.pendingAnalysisPgn)
   const pendingColor = useApp((s) => s.pendingAnalysisColor)
+  const pendingGameId = useApp((s) => s.pendingAnalysisGameId)
   const [adoptedPendingPgn, setAdoptedPendingPgn] = useState<string | null>(null)
+  /** Non-null while the reviewed line still corresponds to a saved Game row */
+  const savedGameIdRef = useRef<string | null>(null)
+  const [savedAnalysisNote, setSavedAnalysisNote] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   if (pendingPgn && pendingPgn !== adoptedPendingPgn) {
     setAdoptedPendingPgn(pendingPgn)
+    savedGameIdRef.current = pendingGameId
+    setSavedAnalysisNote('idle')
     try {
       const c = new Chess()
       c.loadPgn(pendingPgn)
@@ -122,7 +128,6 @@ export function AnalysisView() {
     // triggers React's "setState during render of a different component" warning.
     queueMicrotask(() => useApp.getState().setPendingAnalysisPgn(null))
   }
-
   const clearReview = useCallback(() => {
     reviewRunIdRef.current += 1 // cancels a running review
     setReview(null)
@@ -170,6 +175,8 @@ export function AnalysisView() {
   const handleLoad = useCallback(() => {
     setLoadError(null)
     clearReview()
+    savedGameIdRef.current = null // a manual load is no longer a saved game
+    setSavedAnalysisNote('idle')
     try {
       if (loadMode === 'pgn') {
         const text = pgnText.trim()
@@ -208,6 +215,8 @@ export function AnalysisView() {
         const mv = test.move({ from, to, promotion: promotion ?? 'q' })
         if (!mv) return
         clearReview()
+        savedGameIdRef.current = null // editing a line detaches it from the saved game
+        setSavedAnalysisNote('idle')
         setLineMoves((prev) => [...prev.slice(0, cursor), mv.san])
         setCursor(cursor + 1)
       } catch {
@@ -235,6 +244,39 @@ export function AnalysisView() {
       if (reviewRunIdRef.current !== runId || result.cancelled) return
       setReview({ moves: result.moves, summary: result.summary })
       setReviewRun({ status: 'complete', completed: result.moves.length, total: lineMoves.length })
+
+      // Persist the completed review for saved games (Analysis module).
+      const gameId = savedGameIdRef.current
+      if (gameId && useApp.getState().user) {
+        setSavedAnalysisNote('saving')
+        const payload = {
+          whiteAccuracy: result.summary.white.accuracy,
+          blackAccuracy: result.summary.black.accuracy,
+          depth: reviewDepth,
+          moveReports: JSON.stringify(
+            result.moves.map((m) => ({
+              ply: m.ply,
+              color: m.color,
+              san: m.san,
+              uci: m.uci,
+              quality: m.quality,
+              evalLoss: m.evalLoss,
+              bestMoveSan: m.bestMoveSan,
+              bestMoveUci: m.bestMoveUci,
+              playedWhiteCp: m.playedWhiteCp,
+              bestWhiteCp: m.bestWhiteCp,
+            }))
+          ),
+        }
+        fetch(`/api/games/${encodeURIComponent(gameId)}/analysis`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => setSavedAnalysisNote(d?.saved ? 'saved' : 'failed'))
+          .catch(() => setSavedAnalysisNote('failed'))
+      }
     } catch (e) {
       if (reviewRunIdRef.current !== runId) return
       setReview(null)
@@ -584,6 +626,25 @@ export function AnalysisView() {
         onCancel={handleCancelReview}
         onJumpToPly={jumpToPly}
       />
+
+      {/* Analysis persistence note (saved games only) */}
+      {savedAnalysisNote !== 'idle' && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+          {savedAnalysisNote === 'saving' && (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Saving Pro Review to the game record…
+            </>
+          )}
+          {savedAnalysisNote === 'saved' && (
+            <>
+              <Check className="h-3 w-3 text-emerald-600" aria-hidden /> Pro Review saved to this game&apos;s record.
+            </>
+          )}
+          {savedAnalysisNote === 'failed' && (
+            <>Couldn&apos;t save the analysis — sign in first, then run the review again.</>
+          )}
+        </p>
+      )}
     </div>
   )
 }

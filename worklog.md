@@ -590,3 +590,22 @@ Work Log:
 Stage Summary:
 - The Global Ranking is now fully interactive: click any player for their profile + recent rated games; realtime works over socket.io with an automatic SSE fallback; nationality list covers 98 chess nations
 - Latest commits: pushed below
+
+---
+Task ID: P17
+Agent: Z.ai Code (main)
+Task: ULTIMATE spec response — technical audit, security hardening, analysis persistence, API docs
+
+Work Log:
+- Full repo audit -> docs/audit.md: features split into fully/partially/not-implemented with an honest infra table (Postgres/Redis/BullMQ/Docker unavailable in sandbox; documented migration paths). Roadmap updated
+- SECURITY: src/lib/rate-limit.ts (in-memory fixed-window, Redis-swappable). Applied: login 8/5min, register 5/10min, forgot-password 4/10min, reset-password 8/10min -> 429 + Retry-After. Verified in browser+cURL: 7x401 then 429
+- SECURITY: next.config.ts headers() — X-Content-Type-Options, X-Frame-Options SAMEORIGIN, Referrer-Policy, Permissions-Policy (verified via curl -I)
+- DB: LoginHistory model (success + failed attempts with ip/ua) recorded in login route; GameAnalysis model (gameId unique, accuracies, moveReports JSON, depth, analyzedBy); db:push OK
+- Analysis persistence: GET/POST /api/games/[id]/analysis (POST auth-required, zod-validated, upsert by gameId); GET /api/games/[id]/pgn
+- Clickable review flow: every history row in the dashboard now has a Review button -> fetches PGN -> hands PGN+gameId to the Pro Review view via the store -> Pro Review runs -> auto-saves to GameAnalysis with visible status note. Verified end-to-end signed in as ada on cleo-vs-bruno: 14 moves classified, "Pro Review saved to this game's record", DB row matches UI (0%, 0/7 top-3, depth 12, analyzedBy ada)
+- API surface: /api root replaced "Hello, world!" placeholder with a real endpoint index; /api/openapi.json serves an OpenAPI 3.1 doc of all 20+ HTTP endpoints
+- bun run lint: clean. Console zero errors during all browser flows
+
+Stage Summary:
+- KnightForge now has: audit-backed roadmap, brute-force protection, security headers, login audit trail, persisted Pro Reviews reachable from game history, and a documented OpenAPI
+- Commit + push below

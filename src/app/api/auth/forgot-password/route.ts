@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 const forgotSchema = z.object({
   email: z.string().trim().toLowerCase().email('Invalid email address'),
@@ -9,6 +10,14 @@ const forgotSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // Abuse protection: 4 reset requests per IP per 10 minutes
+    const rl = rateLimitIp(req, 'forgot-password', { limit: 4, windowMs: 10 * 60_000 })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many reset requests. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      )
+    }
     const body = await req.json().catch(() => null)
     const parsed = forgotSchema.safeParse(body)
     if (!parsed.success) {

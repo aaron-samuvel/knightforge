@@ -39,6 +39,35 @@ model User {
   friendsInitiated Friend[]       @relation("FriendRequester")
   friendsReceived  Friend[]       @relation("FriendAddressee")
   resetTokens     PasswordReset[]
+  loginHistory    LoginHistory[]
+}
+
+// Security module: audit trail of sign-in attempts (success and failure).
+model LoginHistory {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String?
+  ip        String?
+  userAgent String?
+  success   Boolean
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
+
+// Analysis module: persisted engine review of a finished game (Pro Review).
+model GameAnalysis {
+  id            String   @id @default(cuid())
+  gameId        String   @unique
+  whiteAccuracy Float
+  blackAccuracy Float
+  // JSON array of per-move reports [{ply, san, classification, evalAfter, bestMove}]
+  moveReports   String
+  depth         Int      @default(0)
+  analyzedBy    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model PasswordReset {
