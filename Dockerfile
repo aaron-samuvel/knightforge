@@ -31,6 +31,13 @@ COPY --from=builder /app/public ./public
 # Prisma schema + generated client engines for runtime
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+# Prisma CLI + engines so the container can apply the schema on startup
+# (SQLite starts empty on a fresh disk — `db push` makes it idempotent)
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/.bin ./node_modules/.bin
+# Self-contained seed (prisma/seed.ts imports ../src/lib/password)
+COPY --from=builder /app/src/lib/password.ts ./src/lib/password.ts
 
 # SQLite lives here — mount a volume on this path to persist data
 RUN mkdir -p /app/db && chown -R knightforge:knightforge /app
@@ -42,4 +49,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # server.js serves the web app; src/instrumentation.ts (compiled into the
 # standalone server) also starts the realtime socket server on :3003.
-CMD ["bun", "server.js"]
+# Apply the DB schema first — idempotent (no-op when tables already exist).
+# Then seed demo data (idempotent: users upserted, games only when empty).
+CMD ["sh", "-c", "bun node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss && bun prisma/seed.ts; exec bun server.js"]
