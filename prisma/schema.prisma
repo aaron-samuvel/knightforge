@@ -28,6 +28,14 @@ model User {
   // Global ranking profile: ISO 3166 alpha-2 nationality (e.g. "IN") + birth year for age
   country       String?
   birthYear     Int?
+  // Uploaded profile photo as a small data URL (≤256px JPEG/WebP, ~150KB max);
+  // null → colored letter avatar (avatarColor) is used instead
+  avatarImage   String?
+  // Extended profile details
+  favoriteOpening String?
+  lichessHandle   String?
+  chesscomHandle  String?
+  websiteUrl      String?
   // JSON blob of UI preferences (board theme, piece set, sound, coordinates, privacy flags)
   preferences   String   @default("{}")
   createdAt     DateTime @default(now())

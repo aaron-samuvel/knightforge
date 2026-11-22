@@ -39,6 +39,7 @@ import { useToast } from '@/hooks/use-toast'
 import { SITE } from '@/lib/config'
 import { useApp, type View } from '@/lib/store'
 import { useAuth } from '@/hooks/use-auth'
+import { UserAvatar } from '@/components/ui/user-avatar'
 import { HomeView } from '@/components/views/home-view'
 
 // ─── View code-splitting ────────────────────────────────────────────────────
@@ -378,12 +379,12 @@ export function AppShell() {
                   onClick={() => setView('profile')}
                   aria-label="Open profile"
                 >
-                  <span
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-white"
-                    style={{ backgroundColor: user.avatarColor }}
-                  >
-                    {(user.displayName || user.name).slice(0, 1).toUpperCase()}
-                  </span>
+                  <UserAvatar
+                    image={user.avatarImage}
+                    color={user.avatarColor}
+                    name={user.displayName || user.name}
+                    size={32}
+                  />
                   <span className="hidden text-sm font-semibold sm:inline">{user.displayName || user.name}</span>
                   <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{user.rating}</span>
                 </button>

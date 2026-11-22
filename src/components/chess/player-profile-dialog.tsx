@@ -20,12 +20,26 @@ import type { PlayerProfile } from '@/lib/chess-types'
 export function PlayerAvatar({
   color,
   name,
+  image,
   size = 'sm',
 }: {
   color: string
   name: string
+  image?: string | null
   size?: 'sm' | 'lg'
 }) {
+  const px = size === 'lg' ? 56 : 28
+  if (image) {
+     
+    return (
+      <img
+        src={image}
+        alt={`${name}'s avatar`}
+        className="shrink-0 rounded-full object-cover"
+        style={{ width: px, height: px }}
+      />
+    )
+  }
   return (
     <span
       className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${
@@ -92,6 +106,7 @@ function ProfileContent({ playerName }: { playerName: string }) {
               <PlayerAvatar
                 color={profile.avatarColor}
                 name={profile.displayName || profile.name}
+                image={profile.avatarImage}
                 size="lg"
               />
               <span className="min-w-0">
@@ -141,6 +156,49 @@ function ProfileContent({ playerName }: { playerName: string }) {
           </div>
 
           {profile.bio && <p className="text-sm text-muted-foreground">{profile.bio}</p>}
+
+          {(profile.favoriteOpening || profile.lichessHandle || profile.chesscomHandle || profile.websiteUrl) && (
+            <div className="space-y-1.5 rounded-lg bg-muted/50 p-3 text-xs">
+              {profile.favoriteOpening && (
+                <p>
+                  <span className="text-muted-foreground">Favorite opening:</span>{' '}
+                  <span className="font-semibold text-foreground">{profile.favoriteOpening}</span>
+                </p>
+              )}
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {profile.lichessHandle && (
+                  <a
+                    className="inline-flex items-center gap-1 font-medium text-emerald-600 hover:underline"
+                    href={`https://lichess.org/@/${encodeURIComponent(profile.lichessHandle)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    lichess: {profile.lichessHandle}
+                  </a>
+                )}
+                {profile.chesscomHandle && (
+                  <a
+                    className="inline-flex items-center gap-1 font-medium text-emerald-600 hover:underline"
+                    href={`https://www.chess.com/member/${encodeURIComponent(profile.chesscomHandle)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    chess.com: {profile.chesscomHandle}
+                  </a>
+                )}
+                {profile.websiteUrl && (
+                  <a
+                    className="inline-flex items-center gap-1 font-medium text-emerald-600 hover:underline"
+                    href={profile.websiteUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    website
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>

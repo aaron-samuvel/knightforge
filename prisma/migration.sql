@@ -16,6 +16,11 @@ CREATE TABLE "User" (
     "puzzleStreak" INTEGER NOT NULL DEFAULT 0,
     "country" TEXT,
     "birthYear" INTEGER,
+    "avatarImage" TEXT,
+    "favoriteOpening" TEXT,
+    "lichessHandle" TEXT,
+    "chesscomHandle" TEXT,
+    "websiteUrl" TEXT,
     "preferences" TEXT NOT NULL DEFAULT '{}',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL

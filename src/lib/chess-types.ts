@@ -149,6 +149,12 @@ export interface PlayerProfile {
   displayName: string | null
   bio: string | null
   avatarColor: string
+  /** Uploaded photo as a small data URL; null → letter avatar */
+  avatarImage: string | null
+  favoriteOpening: string | null
+  lichessHandle: string | null
+  chesscomHandle: string | null
+  websiteUrl: string | null
   /** ISO 3166 alpha-2 nationality code */
   country: string | null
   /** Computed server-side from birthYear; null when not provided */

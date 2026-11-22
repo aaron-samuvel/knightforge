@@ -27,7 +27,13 @@ export interface SessionUser {
   displayName: string | null
   email: string | null
   avatarColor: string
+  /** Uploaded profile photo (small data URL); null → colored letter avatar */
+  avatarImage: string | null
   bio: string | null
+  favoriteOpening: string | null
+  lichessHandle: string | null
+  chesscomHandle: string | null
+  websiteUrl: string | null
   rating: number
   puzzleRating: number
   wins: number
@@ -40,6 +46,8 @@ export interface SessionUser {
   /** Birth year — age shown in the global ranking */
   birthYear: number | null
   preferences: string
+  /** ISO timestamp the account was created (shown as "member since") */
+  createdAt: string
 }
 
 interface AppState {

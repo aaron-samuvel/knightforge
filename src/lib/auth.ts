@@ -129,7 +129,12 @@ export function toSessionUser(user: User) {
     displayName: user.displayName,
     email: user.email,
     avatarColor: user.avatarColor,
+    avatarImage: user.avatarImage,
     bio: user.bio,
+    favoriteOpening: user.favoriteOpening,
+    lichessHandle: user.lichessHandle,
+    chesscomHandle: user.chesscomHandle,
+    websiteUrl: user.websiteUrl,
     rating: user.rating,
     puzzleRating: user.puzzleRating,
     wins: user.wins,
@@ -140,6 +145,7 @@ export function toSessionUser(user: User) {
     country: user.country,
     birthYear: user.birthYear,
     preferences: user.preferences,
+    createdAt: user.createdAt,
   }
 }
 
