@@ -40,6 +40,10 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 # Startup scripts (schema migration) + seed deps
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/src/lib/password.ts ./src/lib/password.ts
+# password.ts imports hash-wasm + bcryptjs: bundled inside route chunks for the
+# app, but the standalone seed script resolves them from node_modules
+COPY --from=builder /app/node_modules/hash-wasm ./node_modules/hash-wasm
+COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs
 
 # SQLite lives here — mount a volume on this path to persist data
 RUN mkdir -p /app/db && chown -R knightforge:knightforge /app
