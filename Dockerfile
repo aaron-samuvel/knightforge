@@ -13,7 +13,13 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 # Prisma needs a DATABASE_URL at generate time; the real one is set at runtime.
 ENV DATABASE_URL=file:./db/build.db
-RUN bun run db:generate && bun run build
+RUN bun run db:generate \
+  # Pre-generate the DDL so the runtime image never needs the Prisma CLI.
+  # Applied on startup by scripts/migrate.ts (bun:sqlite) — see below.
+  && bun node_modules/prisma/build/index.js migrate diff \
+      --from-empty --to-schema-datamodel prisma/schema.prisma --script \
+      > prisma/migration.sql \
+  && bun run build
 
 # ---------- Stage 3: runtime ----------
 FROM oven/bun:1-slim AS runner
@@ -28,15 +34,11 @@ RUN groupadd --system knightforge && useradd --system --gid knightforge knightfo
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-# Prisma schema + generated client engines for runtime
+# Prisma schema + generated client + pre-built DDL (migration.sql)
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-# Prisma CLI + engines so the container can apply the schema on startup
-# (SQLite starts empty on a fresh disk — `db push` makes it idempotent)
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/node_modules/.bin ./node_modules/.bin
-# Self-contained seed (prisma/seed.ts imports ../src/lib/password)
+# Startup scripts (schema migration) + seed deps
+COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/src/lib/password.ts ./src/lib/password.ts
 
 # SQLite lives here — mount a volume on this path to persist data
@@ -49,6 +51,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # server.js serves the web app; src/instrumentation.ts (compiled into the
 # standalone server) also starts the realtime socket server on :3003.
-# Apply the DB schema first — idempotent (no-op when tables already exist).
-# Then seed demo data (idempotent: users upserted, games only when empty).
-CMD ["sh", "-c", "bun node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss && bun prisma/seed.ts; exec bun server.js"]
+# Apply the DB schema (idempotent, no Prisma CLI needed) then seed demo data
+# (idempotent: users upserted, games only when empty), then serve.
+CMD ["sh", "-c", "bun scripts/migrate.ts && bun prisma/seed.ts; exec bun server.js"]
