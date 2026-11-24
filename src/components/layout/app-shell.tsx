@@ -40,6 +40,7 @@ import { SITE } from '@/lib/config'
 import { useApp, type View } from '@/lib/store'
 import { useAuth } from '@/hooks/use-auth'
 import { UserAvatar } from '@/components/ui/user-avatar'
+import { ChallengeManager } from '@/components/chess/challenge-manager'
 import { HomeView } from '@/components/views/home-view'
 
 // ─── View code-splitting ────────────────────────────────────────────────────
@@ -506,6 +507,8 @@ export function AppShell() {
       </Sheet>
 
       <AuthModal />
+      {/* Friend challenges: incoming dialog + navigation, live on every view */}
+      <ChallengeManager />
     </div>
   )
 }

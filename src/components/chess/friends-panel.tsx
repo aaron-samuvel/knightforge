@@ -1,13 +1,24 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Check, Loader2, UserPlus, Users, X } from 'lucide-react'
+import { Check, Loader2, Swords, UserPlus, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Switch } from '@/components/ui/switch'
 import { useApp } from '@/lib/store'
 import { PlayerAvatar, PlayerProfileDialog } from '@/components/chess/player-profile-dialog'
 import { countryToFlag } from '@/lib/countries'
+import { getChallengeSocket } from '@/lib/challenge-socket'
 
 interface FriendUser {
   id: string
@@ -23,6 +34,15 @@ interface FriendRequest {
   user: FriendUser
   createdAt: string
 }
+
+/** Challenge time-control presets (initial seconds + increment). */
+const CHALLENGE_TCS = [
+  { label: '1+0 · Bullet', initial: 60, increment: 0 },
+  { label: '3+2 · Blitz', initial: 180, increment: 2 },
+  { label: '5+0 · Blitz', initial: 300, increment: 0 },
+  { label: '10+0 · Rapid', initial: 600, increment: 0 },
+  { label: '15+10 · Classical', initial: 900, increment: 10 },
+]
 
 interface FriendsData {
   friends: FriendUser[]
@@ -42,6 +62,9 @@ export function FriendsPanel() {
   const [addState, setAddState] = useState<'idle' | 'sending'>('idle')
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null)
+  const [challengeTarget, setChallengeTarget] = useState<FriendUser | null>(null)
+  const [tcIdx, setTcIdx] = useState(2) // default 5+0
+  const [challengeRated, setChallengeRated] = useState(true)
 
   const load = useCallback(() => {
     fetch('/api/friends')
@@ -95,6 +118,21 @@ export function FriendsPanel() {
       () => undefined
     )
     load()
+  }
+
+  const sendChallenge = () => {
+    if (!challengeTarget) return
+    const tc = CHALLENGE_TCS[tcIdx]
+    getChallengeSocket().emit('challenge:send', {
+      to: challengeTarget.name,
+      timeControl: { initial: tc.initial, increment: tc.increment },
+      rated: challengeRated,
+    })
+    setMessage({
+      kind: 'ok',
+      text: `Challenge sent to @${challengeTarget.name} (${tc.label}, ${challengeRated ? 'rated' : 'casual'}) — valid for 60s.`,
+    })
+    setChallengeTarget(null)
   }
 
   if (!user) {
@@ -239,15 +277,26 @@ export function FriendsPanel() {
                         </span>
                       </span>
                     </button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 px-2 text-xs text-muted-foreground hover:text-red-600"
-                      aria-label={`Remove ${f.name} from friends`}
-                      onClick={() => void removeFriend(f.id)}
-                    >
-                      Remove
-                    </Button>
+                    <span className="flex shrink-0 gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        aria-label={`Challenge ${f.name} to a game`}
+                        onClick={() => setChallengeTarget(f)}
+                      >
+                        <Swords className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-red-600"
+                        aria-label={`Remove ${f.name} from friends`}
+                        onClick={() => void removeFriend(f.id)}
+                      >
+                        Remove
+                      </Button>
+                    </span>
                   </li>
                 ))}
                 {data?.outgoing.map((r) => (
@@ -281,6 +330,58 @@ export function FriendsPanel() {
       </ScrollArea>
 
       <PlayerProfileDialog playerName={selectedPlayer} onClose={() => setSelectedPlayer(null)} />
+
+      {/* Challenge dialog — pick a time control and fire the challenge */}
+      <Dialog open={!!challengeTarget} onOpenChange={(o) => !o && setChallengeTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Swords className="h-5 w-5 text-emerald-600" /> Challenge{' '}
+              {challengeTarget?.displayName || challengeTarget?.name}
+            </DialogTitle>
+            <DialogDescription>
+              They get a live invite — if they accept, the game opens instantly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="fr-tc">Time control</Label>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Time control">
+                {CHALLENGE_TCS.map((tc, i) => (
+                  <button
+                    key={tc.label}
+                    type="button"
+                    role="radio"
+                    aria-checked={tcIdx === i}
+                    onClick={() => setTcIdx(i)}
+                    className={`min-h-[44px] rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                      tcIdx === i
+                        ? 'border-emerald-600 bg-emerald-600/10 text-emerald-700'
+                        : 'bg-card text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {tc.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="fr-rated" className="text-sm">
+                Rated game
+              </Label>
+              <Switch id="fr-rated" checked={challengeRated} onCheckedChange={setChallengeRated} />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setChallengeTarget(null)}>
+              Cancel
+            </Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={sendChallenge}>
+              <Swords className="mr-2 h-4 w-4" /> Send challenge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

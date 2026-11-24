@@ -37,6 +37,7 @@ interface UseChessGameReturn {
   ) => Promise<string | null>
   joinRoom: (code: string, name: string) => boolean
   reconnect: (gameId: string) => void
+  joinChallenge: (gameId: string, name: string) => void
   makeMove: (from: string, to: string, promotion?: string) => void
   resign: () => void
   offerDraw: () => void
@@ -234,6 +235,17 @@ export function useChessGame(): UseChessGameReturn {
     socket.emit('game:reconnect', { gameId, name: localStorage.getItem('chess-username') || 'Guest' })
   }, [])
 
+  // Seat claim for an accepted friend challenge — the server starts the game
+  // once both participants have claimed their seats by username.
+  const joinChallenge = useCallback(
+    (gameId: string, name: string) => {
+      const socket = socketRef.current
+      if (!socket || !connected) return
+      socket.emit('game:challenge-join', { gameId, name: name.trim() || 'Guest' })
+    },
+    [connected]
+  )
+
   const makeMove = useCallback((from: string, to: string, promotion?: string) => {
     const socket = socketRef.current
     setGame((prev) => {
@@ -307,6 +319,7 @@ export function useChessGame(): UseChessGameReturn {
     createRoom,
     joinRoom,
     reconnect,
+    joinChallenge,
     makeMove,
     resign,
     offerDraw,

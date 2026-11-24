@@ -21,6 +21,15 @@ export type View =
   | 'terms'
   | 'contact'
 
+/** A live friend challenge received over the challenge socket. */
+export interface ChallengeIncoming {
+  id: string
+  from: string
+  fromRating: number
+  timeControl: { initial: number; increment: number }
+  rated: boolean
+}
+
 export interface SessionUser {
   id: string
   name: string
@@ -73,6 +82,13 @@ interface AppState {
 
   prefs: UserPreferences
   setPrefs: (p: Partial<UserPreferences>) => void
+
+  /** Friend challenge waiting for a response (rendered as a dialog app-wide) */
+  incomingChallenge: ChallengeIncoming | null
+  setIncomingChallenge: (c: ChallengeIncoming | null) => void
+  /** Accepted challenge game the Play view must seat us into (consumed once) */
+  challengeGameId: string | null
+  setChallengeGameId: (id: string | null) => void
 }
 
 function loadLocalPrefs(): UserPreferences {
@@ -111,6 +127,11 @@ export const useApp = create<AppState>((set, get) => ({
   setUser: (u) => set({ user: u }),
   authModal: 'closed',
   setAuthModal: (m) => set({ authModal: m }),
+
+  incomingChallenge: null,
+  setIncomingChallenge: (c) => set({ incomingChallenge: c }),
+  challengeGameId: null,
+  setChallengeGameId: (id) => set({ challengeGameId: id }),
 
   prefs: loadLocalPrefs(),
   setPrefs: (p) => {

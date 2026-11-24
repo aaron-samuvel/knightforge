@@ -397,6 +397,53 @@ function resolveGameOver(game: Game) {
   }
 }
 
+// ---------------- Friend challenges ----------------
+
+interface Challenge {
+  id: string
+  fromSocketId: string
+  fromName: string
+  fromRating: number
+  toSocketId: string
+  toName: string
+  toRating: number
+  tc: { initial: number; increment: number } // seconds
+  rated: boolean
+  createdAt: number
+  expiryTimer: NodeJS.Timeout
+}
+
+const challenges = new Map<string, Challenge>()
+// gameId → timer that kills a challenge game if a player never claims their seat
+const challengeGames = new Map<string, NodeJS.Timeout>()
+const CHALLENGE_EXPIRY_MS = 60_000
+const CHALLENGE_JOIN_MS = 45_000
+
+/** Find an online session by username (case-insensitive), preferring one not mid-game. */
+function findSessionByName(name: string): PlayerSession | null {
+  const lower = name.toLowerCase()
+  let fallback: PlayerSession | null = null
+  for (const s of sessions.values()) {
+    if (s.name.toLowerCase() !== lower) continue
+    if (s.inGameId && games.has(s.inGameId)) {
+      fallback ??= s
+      continue
+    }
+    return s
+  }
+  return fallback
+}
+
+/** True when ANY session for this username is seated in an active game (the
+ *  friends socket and the Play-view socket are separate connections). */
+function anySessionInGame(name: string): boolean {
+  const lower = name.toLowerCase()
+  for (const s of sessions.values()) {
+    if (s.name.toLowerCase() === lower && s.inGameId && games.has(s.inGameId)) return true
+  }
+  return false
+}
+
 // ---------------- Socket handlers ----------------
 
 io.on('connection', (socket) => {
@@ -811,11 +858,319 @@ io.on('connection', (socket) => {
     }
   })
 
+  // -------- presence:register (v2) --------
+  // Lightweight identity claim used by the friends-challenge client socket,
+  // which never queues or joins rooms but must be findable by username.
+  socket.on('presence:register', (data: { name?: string; rating?: number }) => {
+    try {
+      const session = sessions.get(socket.id)
+      if (!session) return
+      let name = typeof data?.name === 'string' ? data.name.trim() : ''
+      if (name.length < 1 || name.length > 20) name = 'Guest'
+      session.name = name
+      const rating = Math.floor(Number(data?.rating) || 0)
+      if (rating >= 100 && rating <= 3000) session.rating = rating
+    } catch (err) {
+      console.error('presence:register error:', err)
+    }
+  })
+
+  // -------- challenge:send (v2) --------
+  socket.on('challenge:send', (data: {
+    to?: string
+    timeControl?: { initial?: number; increment?: number }
+    rated?: boolean
+  }) => {
+    try {
+      const sender = sessions.get(socket.id)
+      if (!sender) return
+      const fromName = sender.name
+      const toName = String(data?.to ?? '').trim()
+      if (!fromName || fromName === 'Guest') {
+        socket.emit('challenge:error', { message: 'Sign in to challenge your friends' })
+        return
+      }
+      if (!toName || toName.toLowerCase() === fromName.toLowerCase()) {
+        socket.emit('challenge:error', { message: 'Cannot challenge this player' })
+        return
+      }
+
+      const initial = Math.min(1800, Math.max(30, Math.floor(Number(data?.timeControl?.initial) || 300)))
+      const increment = Math.min(60, Math.max(0, Math.floor(Number(data?.timeControl?.increment) || 0)))
+      const tc = { initial, increment }
+      const rated = data?.rated !== false // default rated
+
+      // The sender may be mid-game on a DIFFERENT socket (Play view) — scan by name.
+      if (anySessionInGame(fromName)) {
+        socket.emit('challenge:error', { message: 'Finish your current game first' })
+        return
+      }
+
+      const target = findSessionByName(toName)
+      if (!target) {
+        socket.emit('challenge:error', { message: `${toName} is offline right now` })
+        return
+      }
+      if (anySessionInGame(target.name)) {
+        socket.emit('challenge:error', { message: `${toName} is already in a game` })
+        return
+      }
+
+      // replace any identical pending challenge from this sender
+      for (const [id, ch] of challenges.entries()) {
+        if (
+          ch.fromName.toLowerCase() === fromName.toLowerCase() &&
+          ch.toName.toLowerCase() === toName.toLowerCase()
+        ) {
+          clearTimeout(ch.expiryTimer)
+          challenges.delete(id)
+        }
+      }
+
+      const id = generateId()
+      const fromSocketId = socket.id
+      const toSocketId = target.socketId
+      const expiryTimer = setTimeout(() => {
+        if (!challenges.has(id)) return
+        challenges.delete(id)
+        io.sockets.sockets.get(fromSocketId)?.emit('challenge:expired', { id, to: toName })
+        io.sockets.sockets.get(toSocketId)?.emit('challenge:expired', { id, from: fromName })
+        console.log(`Challenge ${id} expired (${fromName} → ${toName})`)
+      }, CHALLENGE_EXPIRY_MS)
+
+      challenges.set(id, {
+        id,
+        fromSocketId,
+        fromName,
+        fromRating: sender.rating,
+        toSocketId,
+        toName: target.name,
+        toRating: target.rating,
+        tc,
+        rated,
+        createdAt: Date.now(),
+        expiryTimer,
+      })
+
+      socket.emit('challenge:sent', {
+        id,
+        to: target.name,
+        timeControl: tc,
+        rated,
+        expiresInMs: CHALLENGE_EXPIRY_MS,
+      })
+      io.sockets.sockets.get(toSocketId)?.emit('challenge:incoming', {
+        id,
+        from: fromName,
+        fromRating: sender.rating,
+        timeControl: tc,
+        rated,
+      })
+      console.log(`Challenge sent: ${fromName} → ${toName} (${tcKey(tc)}, ${rated ? 'rated' : 'casual'})`)
+    } catch (err) {
+      console.error('challenge:send error:', err)
+      socket.emit('challenge:error', { message: 'Failed to send challenge' })
+    }
+  })
+
+  // -------- challenge:cancel (v2) --------
+  socket.on('challenge:cancel', (data: { id?: string }) => {
+    try {
+      const id = String(data?.id ?? '')
+      const ch = challenges.get(id)
+      if (!ch || ch.fromSocketId !== socket.id) {
+        socket.emit('challenge:error', { message: 'No pending challenge to cancel' })
+        return
+      }
+      clearTimeout(ch.expiryTimer)
+      challenges.delete(id)
+      io.sockets.sockets.get(ch.toSocketId)?.emit('challenge:cancelled', { id, from: ch.fromName })
+      console.log(`Challenge ${id} cancelled by ${ch.fromName}`)
+    } catch (err) {
+      console.error('challenge:cancel error:', err)
+    }
+  })
+
+  // -------- challenge:decline (v2) --------
+  socket.on('challenge:decline', (data: { id?: string }) => {
+    try {
+      const id = String(data?.id ?? '')
+      const ch = challenges.get(id)
+      if (!ch || ch.toSocketId !== socket.id) {
+        socket.emit('challenge:error', { message: 'Challenge not available anymore' })
+        return
+      }
+      clearTimeout(ch.expiryTimer)
+      challenges.delete(id)
+      io.sockets.sockets.get(ch.fromSocketId)?.emit('challenge:declined', { id, by: ch.toName })
+      console.log(`Challenge ${id} declined by ${ch.toName}`)
+    } catch (err) {
+      console.error('challenge:decline error:', err)
+    }
+  })
+
+  // -------- challenge:accept (v2) --------
+  socket.on('challenge:accept', (data: { id?: string }) => {
+    try {
+      const id = String(data?.id ?? '')
+      const ch = challenges.get(id)
+      if (!ch || ch.toSocketId !== socket.id) {
+        socket.emit('challenge:error', { message: 'Challenge not available anymore' })
+        return
+      }
+      const senderSock = io.sockets.sockets.get(ch.fromSocketId)
+      if (!senderSock) {
+        clearTimeout(ch.expiryTimer)
+        challenges.delete(id)
+        socket.emit('challenge:error', { message: `${ch.fromName} went offline` })
+        return
+      }
+      if (anySessionInGame(ch.fromName) || anySessionInGame(ch.toName)) {
+        clearTimeout(ch.expiryTimer)
+        challenges.delete(id)
+        socket.emit('challenge:error', { message: 'One of the players is already in a game' })
+        return
+      }
+
+      clearTimeout(ch.expiryTimer)
+      challenges.delete(id)
+
+      // Seats are claimed by name via game:challenge-join — the Play-view socket
+      // is a different connection than the friends/challenge socket, so both
+      // players navigate to the Play view and register their seat there.
+      const senderWhite = Math.random() < 0.5
+      const white: SideState = senderWhite
+        ? { socketId: '', name: ch.fromName, rating: ch.fromRating, clockMs: ch.tc.initial * 1000 }
+        : { socketId: '', name: ch.toName, rating: ch.toRating, clockMs: ch.tc.initial * 1000 }
+      const black: SideState = senderWhite
+        ? { socketId: '', name: ch.toName, rating: ch.toRating, clockMs: ch.tc.initial * 1000 }
+        : { socketId: '', name: ch.fromName, rating: ch.fromRating, clockMs: ch.tc.initial * 1000 }
+
+      const game = createGame(white, black, ch.tc, false, {
+        rated: ch.rated,
+        gameType: 'private',
+        status: 'waiting',
+      })
+
+      const joinTimer = setTimeout(() => {
+        if (!challengeGames.has(game.id)) return
+        challengeGames.delete(game.id)
+        const g = games.get(game.id)
+        if (g && g.status === 'waiting') {
+          games.delete(game.id)
+          for (const side of [g.white, g.black]) {
+            if (!side.socketId) continue
+            const s = sessions.get(side.socketId)
+            if (s) s.inGameId = undefined
+            io.sockets.sockets
+              .get(side.socketId)
+              ?.emit('challenge:error', { message: 'Challenge expired — opponent never connected' })
+          }
+          console.log(`Challenge game ${game.id} expired before both players joined`)
+        }
+      }, CHALLENGE_JOIN_MS)
+      challengeGames.set(game.id, joinTimer)
+
+      const payload = (color: 'white' | 'black') => ({
+        gameId: game.id,
+        color,
+        timeControl: ch.tc,
+        rated: ch.rated,
+      })
+      senderSock.emit('challenge:accepted', payload(senderWhite ? 'white' : 'black'))
+      socket.emit('challenge:accepted', payload(senderWhite ? 'black' : 'white'))
+      console.log(`Challenge accepted: ${ch.fromName} vs ${ch.toName} — game ${game.id} (waiting for both players)`)
+      emitLobbyStats()
+    } catch (err) {
+      console.error('challenge:accept error:', err)
+      socket.emit('challenge:error', { message: 'Failed to accept challenge' })
+    }
+  })
+
+  // -------- game:challenge-join (v2) --------
+  // A challenge participant claims their seat from the Play-view socket; the
+  // game activates once both seats are claimed.
+  socket.on('game:challenge-join', (data: { gameId?: string; name?: string }) => {
+    try {
+      const gameId = String(data?.gameId ?? '')
+      const game = games.get(gameId)
+      if (!game || game.status !== 'waiting' || !challengeGames.has(gameId)) {
+        socket.emit('game:error', { message: 'Challenge game not found or already started' })
+        return
+      }
+      const session = sessions.get(socket.id)
+      if (!session) return
+      if (session.inGameId && games.has(session.inGameId)) {
+        socket.emit('game:error', { message: 'Already in a game' })
+        return
+      }
+
+      let name = typeof data?.name === 'string' ? data.name.trim() : ''
+      if (name.length < 1 || name.length > 20) name = 'Guest'
+
+      const side: 'white' | 'black' | null =
+        game.white.name.toLowerCase() === name.toLowerCase()
+          ? 'white'
+          : game.black.name.toLowerCase() === name.toLowerCase()
+            ? 'black'
+            : null
+      if (!side) {
+        socket.emit('game:error', { message: 'You are not part of this challenge' })
+        return
+      }
+      const seat = sideFor(game, side)
+      if (seat.socketId && seat.socketId !== socket.id && io.sockets.sockets.has(seat.socketId)) {
+        socket.emit('game:error', { message: 'Seat already taken' })
+        return
+      }
+
+      seat.socketId = socket.id
+      seat.rating = session.rating || seat.rating
+      session.inGameId = gameId
+      session.name = seat.name
+      socket.join(gameId)
+
+      const other = opponentOf(game, side)
+      if (!other.socketId || !io.sockets.sockets.has(other.socketId)) return // wait for the opponent
+
+      // both seats claimed → start the game
+      const timer = challengeGames.get(gameId)
+      if (timer) {
+        clearTimeout(timer)
+        challengeGames.delete(gameId)
+      }
+      game.status = 'active'
+      game.startedAt = Date.now()
+      game.lastMoveAt = Date.now()
+      game.white.clockMs = game.initialMs
+      game.black.clockMs = game.initialMs
+
+      io.sockets.sockets.get(game.white.socketId)?.emit('game:start', startPayload(game, 'white'))
+      io.sockets.sockets.get(game.black.socketId)?.emit('game:start', startPayload(game, 'black'))
+      console.log(`Challenge game ${gameId} started: ${game.white.name} (W) vs ${game.black.name} (B)`)
+      emitLobbyStats()
+    } catch (err) {
+      console.error('game:challenge-join error:', err)
+      socket.emit('game:error', { message: 'Failed to join challenge game' })
+    }
+  })
+
   // -------- disconnect --------
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`)
     const session = sessions.get(socket.id)
     sessions.delete(socket.id)
+
+    // pending friend challenges involving this socket are void
+    for (const [id, ch] of challenges.entries()) {
+      if (ch.fromSocketId !== socket.id && ch.toSocketId !== socket.id) continue
+      clearTimeout(ch.expiryTimer)
+      challenges.delete(id)
+      const otherSocketId = ch.fromSocketId === socket.id ? ch.toSocketId : ch.fromSocketId
+      const otherName = ch.fromSocketId === socket.id ? ch.toName : ch.fromName
+      io.sockets.sockets.get(otherSocketId)?.emit('challenge:cancelled', { id, from: otherName })
+      console.log(`Challenge ${id} cancelled (${ch.fromName} → ${ch.toName} — peer disconnected)`)
+    }
 
     // remove from queue
     const qIdx = queue.findIndex((q) => q.socketId === socket.id)

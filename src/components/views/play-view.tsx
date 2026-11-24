@@ -101,6 +101,24 @@ export function PlayView({ mode }: { mode: Mode }) {
     }
   }, [chess.error, toast])
 
+  // Accepted friend challenge → claim our seat as soon as the Play socket is
+  // connected. The game activates when both participants have claimed theirs.
+  const challengeGameId = useApp((s) => s.challengeGameId)
+  const setChallengeGameId = useApp((s) => s.setChallengeGameId)
+  useEffect(() => {
+    if (!challengeGameId || !chess.connected || chess.phase !== 'lobby') return
+    if (chess.game) return // already seated in another game
+    const joinName = user?.name || localStorage.getItem('chess-username') || name.trim() || 'Guest'
+    chess.joinChallenge(challengeGameId, joinName)
+  }, [challengeGameId, chess.connected, chess.phase, chess.joinChallenge, chess.game, user?.name, name])
+
+  // The seat is claimed once the game starts — drop the pending marker
+  useEffect(() => {
+    if (challengeGameId && (chess.phase === 'playing' || chess.phase === 'over')) {
+      setChallengeGameId(null)
+    }
+  }, [challengeGameId, chess.phase, setChallengeGameId])
+
   const handleCreateRoom = async () => {
     setCreating(true)
     const code = await chess.createRoom(myName, timeControl, rated, color)
