@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Flame, Globe2, Radio, Trophy } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -224,7 +224,9 @@ export function LeaderboardView() {
             </div>
           ) : visible.length === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              No players from {countryName(countryFilter)} in the top {ranking?.length ?? 0} yet.
+              {countryFilter === 'all'
+                ? 'No rated players yet. Register, play rated games, and claim the top spot.'
+                : `No players from ${countryName(countryFilter)} in the top ${ranking?.length ?? 0} yet.`}
             </p>
           ) : (
             <div className="max-h-96 overflow-y-auto rounded-lg border">
