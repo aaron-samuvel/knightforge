@@ -46,7 +46,8 @@ self-hostable, open product.
 | **Analysis** | Post-game review (Stockfish WASM, depth 13–15 in your browser): blunder/mistake/inaccuracy/good/excellent/best/book classification, accuracy %, evaluation graph, best-move arrows, principal variation, opening identification, alternative-move replay; free Analysis Board with PGN/FEN input |
 | **Puzzles** | 18 chess.js-validated puzzles (mate-in-1, mate-in-2, tactics), daily puzzle, hints, streak, puzzle rating, attempts persisted for signed-in players |
 | **Learn** | 8-lesson beginner curriculum with interactive demo boards and progress tracking; 16-opening explorer with ECO codes, practice mode, and personal notes |
-| **Accounts** | Email/password registration (Argon2id), JWT session cookies (httpOnly, server-side revocable), password reset, profile customization (display name, bio, avatar color), preferences |
+| **Accounts** | Email/password registration (Argon2id), JWT session cookies (httpOnly, server-side revocable), password reset, profile customization (avatar photo upload, display name, bio, nationality with flag, birth year, avatar color, favorite opening, Lichess/Chess.com handles, website), preferences |
+| **Friends** | Friend requests (send/accept/remove), presence indicators, realtime direct challenges with time-control picker (1+0 to 15+10) and rated/casual toggle — the recipient gets an in-app dialog on any view and accepting drops both players straight into a rated board |
 | **Ratings** | Elo (K=32), updated server-side only for rated games between registered players; leaderboard; per-game rating deltas |
 | **Stats** | Player dashboard: rating, win rate, W/L/D, puzzle rating/streak/solved, game history |
 
@@ -306,6 +307,11 @@ Honest list — nothing here is claimed to be complete if it isn't:
 
 ## Contribution guide
 
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full developer guide
+(local setup, database migrations, realtime architecture notes) and the
+pull-request checklist. Bugs and feature ideas go through the issue
+[templates](./.github/ISSUE_TEMPLATE). In short:
+
 1. Fork + feature branch (`feat/puzzle-streaks`).
 2. Keep moves server-validated; never trust client payloads.
 3. `bun run lint` must pass; update docs for API/behaviour changes.
@@ -313,7 +319,7 @@ Honest list — nothing here is claimed to be complete if it isn't:
 
 ## Licence & third-party acknowledgements
 
-- Application code: MIT (yours to fork).
+- Application code: MIT (see [`LICENSE`](./LICENSE) — yours to fork).
 - **chess.js** — BSD-2-Clause. **react-chessboard** — MIT. **Stockfish** — GPL-3+ compiled
   as WASM (thank you, T. Romstad, M. Costalba, J. Kiiski and the Stockfish community);
   the `public/engine/` files are distributed under their upstream licence (see

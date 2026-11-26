@@ -65,3 +65,8 @@ dev.log
 # vitest throwaway database
 prisma/db/test.db
 db/test.db
+
+# sandbox runtime artifacts
+.zscripts/dev.pid
+.zscripts/dev.log
+.zscripts/mini-services-chess-game.log
