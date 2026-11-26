@@ -1,5 +1,7 @@
 # ♞ KnightForge
 
+[![CI](https://github.com/aaron-samuvel/knightforge/actions/workflows/ci.yml/badge.svg)](https://github.com/aaron-samuvel/knightforge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-059669.svg)](./LICENSE)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aaron-samuvel/knightforge)
 
 **Free, open online chess — play, learn, and forge your game.**
