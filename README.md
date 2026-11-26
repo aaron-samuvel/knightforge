@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/aaron-samuvel/knightforge/actions/workflows/ci.yml/badge.svg)](https://github.com/aaron-samuvel/knightforge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-059669.svg)](./LICENSE)
+[![Live site](https://img.shields.io/website?url=https%3A%2F%2Fknightforge-web.onrender.com&label=Live%20site&style=flat)](https://knightforge-web.onrender.com/)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aaron-samuvel/knightforge)
 
 **Free, open online chess — play, learn, and forge your game.**
 
 > [!IMPORTANT]
-> **🔗 View directly:** **[github.com/aaron-samuvel/knightforge](https://github.com/aaron-samuvel/knightforge)**
-> · **Run it live:** `git clone https://github.com/aaron-samuvel/knightforge.git && cd knightforge && make setup && make dev` → open **http://localhost:3000**
+> **🟢 Play it live (deployed):** **[https://knightforge-web.onrender.com/](https://knightforge-web.onrender.com/)** — free tier, first request after idle may take ~30 s to wake
+> · **View directly:** **[github.com/aaron-samuvel/knightforge](https://github.com/aaron-samuvel/knightforge)**
+> · **Run it locally:** `git clone https://github.com/aaron-samuvel/knightforge.git && cd knightforge && make setup && make dev` → open **http://localhost:3000**
 > · **Docker:** `make docker-up` → **http://localhost:3000**
 > · **Demo accounts:** `ada@demo.local` / `nina@demo.local` / `rafa@demo.local` / `bruno@demo.local` / `kenji@demo.local` / `cleo@demo.local` / `dev@demo.local` — password `knightforge-demo`
 > · **Try Pro Review:** Analysis view → paste a PGN → "Run full review" (Brilliant/Blunder/accuracy per move)
