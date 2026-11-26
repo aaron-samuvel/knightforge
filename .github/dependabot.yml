@@ -1,25 +1,13 @@
-# Dependabot — automated dependency + action version updates.
-# Frontend/Node ecosystem via bun.lockb, GitHub Actions monthly.
+# Dependabot — automated GitHub Actions version updates.
+#
+# NOTE: the npm ecosystem is intentionally NOT enabled here. This repo uses
+# Bun with a bun.lockb lockfile, which Dependabot's npm updater cannot
+# resolve — its runs fail and it would open lockfile-less PRs. Dependency
+# bumps are handled manually (or with `bun update`) until Bun lockfiles are
+# supported: https://github.com/dependabot/dependabot-core/issues/8935
 version: 2
 
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-    commit-message:
-      prefix: "chore(deps)"
-    groups:
-      # Group minor/patch updates together so majors are reviewed individually.
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
