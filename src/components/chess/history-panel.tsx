@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { History, RefreshCw, Loader2, Play, User } from 'lucide-react'
+import { History, RefreshCw, Loader2, Play, User, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useApp } from '@/lib/store'
+import { useToast } from '@/hooks/use-toast'
 import type { HistoryGame } from '@/lib/chess-types'
 
 export function resultLabel(game: Pick<HistoryGame, 'result'>): string {
@@ -15,12 +16,30 @@ export function HistoryPanel({ refreshKey }: { refreshKey: number }) {
   const [games, setGames] = useState<HistoryGame[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingReviewId, setLoadingReviewId] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const user = useApp((s) => s.user)
   const [mineOnly, setMineOnly] = useState(false)
   const mineParam = mineOnly && user ? `&name=${encodeURIComponent(user.name)}` : ''
   const setPendingAnalysisPgn = useApp((s) => s.setPendingAnalysisPgn)
   const setPendingAnalysisGameId = useApp((s) => s.setPendingAnalysisGameId)
   const setView = useApp((s) => s.setView)
+  const { toast } = useToast()
+
+  /** Fetch the stored PGN and copy it to the clipboard for study/sharing. */
+  const copyPgn = (gameId: string) => {
+    fetch(`/api/games/${encodeURIComponent(gameId)}/pgn`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(async (d) => {
+        if (!d?.pgn) throw new Error('no pgn')
+        await navigator.clipboard.writeText(d.pgn)
+        setCopiedId(gameId)
+        setTimeout(() => setCopiedId((c) => (c === gameId ? null : c)), 2000)
+        toast({ description: 'PGN copied to clipboard' })
+      })
+      .catch(() => {
+        toast({ description: 'Could not copy PGN — try again', variant: 'destructive' })
+      })
+  }
 
   /** Fetch the stored PGN and hand the game to the Pro Review analysis view. */
   const openReview = (gameId: string) => {
@@ -114,6 +133,20 @@ export function HistoryPanel({ refreshKey }: { refreshKey: number }) {
                       {g.whiteRatingDelta >= 0 ? `+${g.whiteRatingDelta}` : g.whiteRatingDelta} /{' '}
                       {g.blackRatingDelta >= 0 ? `+${g.blackRatingDelta}` : g.blackRatingDelta}
                     </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      aria-label={`Copy PGN of ${g.whiteName} vs ${g.blackName}`}
+                      onClick={() => copyPgn(g.id)}
+                    >
+                      {copiedId === g.id ? (
+                        <Check className="h-3 w-3 text-emerald-600" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                      PGN
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
