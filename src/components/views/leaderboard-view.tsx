@@ -1,9 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Flame, Globe2, Radio, Trophy } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -130,8 +137,28 @@ export function LeaderboardView() {
   const user = useApp((s) => s.user)
   const { ranking, lastUpdate, transport } = useGlobalRanking(50)
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null)
+  const [countryFilter, setCountryFilter] = useState<string>('all')
 
   const closeDialog = useCallback(() => setSelectedPlayer(null), [])
+
+  // Countries actually present in the loaded ranking, sorted by player count.
+  const countries = useMemo(() => {
+    if (!ranking) return []
+    const counts = new Map<string, number>()
+    for (const p of ranking) {
+      if (p.country) counts.set(p.country, (counts.get(p.country) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([code, count]) => ({ code, count }))
+  }, [ranking])
+
+  const visible = useMemo(() => {
+    if (!ranking) return null
+    return countryFilter === 'all'
+      ? ranking
+      : ranking.filter((p) => p.country === countryFilter)
+  }, [ranking, countryFilter])
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -160,17 +187,44 @@ export function LeaderboardView() {
               <LiveUpdatedAgo at={lastUpdate} transport={transport} />
             </span>
           </CardTitle>
+          {ranking !== null && countries.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Select value={countryFilter} onValueChange={setCountryFilter}>
+                <SelectTrigger
+                  aria-label="Filter ranking by country"
+                  className="h-8 w-[200px] text-xs"
+                >
+                  <SelectValue placeholder="All countries" />
+                </SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="all">
+                    All countries ({ranking.length})
+                  </SelectItem>
+                  {countries.map(({ code, count }) => (
+                    <SelectItem key={code} value={code}>
+                      {countryToFlag(code)} {countryName(code)} ({count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {countryFilter !== 'all' && (
+                <span className="text-xs text-muted-foreground">
+                  showing {visible?.length ?? 0} of top {ranking.length}
+                </span>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-2">
-          {ranking === null ? (
+          {visible === null ? (
             <div className="space-y-2 p-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="h-10 animate-pulse rounded-lg bg-muted" />
               ))}
             </div>
-          ) : ranking.length === 0 ? (
+          ) : visible.length === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              No rated players yet. Register, play rated games, and claim the top spot.
+              No players from {countryName(countryFilter)} in the top {ranking?.length ?? 0} yet.
             </p>
           ) : (
             <div className="max-h-96 overflow-y-auto rounded-lg border">
@@ -185,7 +239,7 @@ export function LeaderboardView() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ranking.map((p) => (
+                  {visible.map((p) => (
                     <RankingRow
                       key={p.name}
                       player={p}
