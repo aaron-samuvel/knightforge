@@ -50,8 +50,8 @@ self-hostable, open product.
 | **Learn** | 8-lesson beginner curriculum with interactive demo boards and progress tracking; 16-opening explorer with ECO codes, practice mode, and personal notes |
 | **Accounts** | Email/password registration (Argon2id), JWT session cookies (httpOnly, server-side revocable), password reset, profile customization (avatar photo upload, display name, bio, nationality with flag, birth year, avatar color, favorite opening, Lichess/Chess.com handles, website), preferences |
 | **Friends** | Friend requests (send/accept/remove), presence indicators, realtime direct challenges with time-control picker (1+0 to 15+10) and rated/casual toggle — the recipient gets an in-app dialog on any view and accepting drops both players straight into a rated board |
-| **Ratings** | Elo (K=32), updated server-side only for rated games between registered players; leaderboard; per-game rating deltas |
-| **Stats** | Player dashboard: rating, win rate, W/L/D, puzzle rating/streak/solved, game history |
+| **Ratings** | Elo (K=32), updated server-side only for rated games between registered players; leaderboard with realtime updates (socket push → SSE fallback → polling), country filter, clickable player profiles; per-game rating deltas |
+| **Stats** | Player dashboard: rating, win rate, W/L/D, puzzle rating/streak/solved, game history with one-click PGN copy and Pro Review hand-off |
 
 ## Intended users & real-world benefit
 
