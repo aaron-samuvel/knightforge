@@ -1,43 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 
-const createUserSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, 'Name must be at least 1 character')
-    .max(20, 'Name must be at most 20 characters'),
-})
-
-export async function POST(req: NextRequest) {
+/**
+ * GET /api/users?name= — public user lookup (never exposes credentials).
+ *
+ * Note: there is deliberately NO POST here. Account creation happens in
+ * `/api/auth/register` (Argon2id + rate limiting); an earlier unauthenticated
+ * "create/ensure user by name" POST was removed — it allowed anyone to mint
+ * unlimited users and claim leaderboard namespace.
+ */
+export async function GET(req: NextRequest) {
   try {
-    const body = await req.json()
-    const parsed = createUserSchema.safeParse(body)
-    if (!parsed.success) {
+    // Cheap DB read, but public — throttle scripted scraping.
+    const rl = rateLimitIp(req, 'user-lookup', { limit: 60, windowMs: 60_000 })
+    if (!rl.ok) {
       return NextResponse.json(
-        { error: 'Invalid request', details: parsed.error.flatten() },
-        { status: 400 }
+        { error: 'Too many requests. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
       )
     }
 
-    const name = parsed.data.name
-    const user = await db.user.upsert({
-      where: { name },
-      update: {},
-      create: { name },
-      select: { id: true, name: true, displayName: true, avatarColor: true, rating: true },
-    })
-
-    return NextResponse.json({ user }, { status: 201 })
-  } catch (err) {
-    console.error('[POST /api/users] error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
-}
-
-export async function GET(req: NextRequest) {
-  try {
     const name = req.nextUrl.searchParams.get('name')
     if (!name || name.trim().length === 0) {
       return NextResponse.json({ error: 'Missing "name" query parameter' }, { status: 400 })

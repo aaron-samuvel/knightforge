@@ -30,7 +30,7 @@ export async function GET() {
         leaderboardStream: "GET /api/leaderboard/stream (SSE)",
         profile: "GET /api/players/[name]",
         myProfile: "PATCH /api/profile",
-        userLookup: "GET|POST /api/users?name=",
+        userLookup: "GET /api/users?name=",
       },
       puzzles: {
         list: "GET /api/puzzles",

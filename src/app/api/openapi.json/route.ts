@@ -221,7 +221,6 @@ export async function GET() {
           parameters: [{ name: 'name', in: 'query', required: true, schema: { type: 'string' } }],
           responses: { '200': { description: 'User' }, '404': { description: 'Not found' } },
         },
-        post: { summary: 'Create/ensure a local user by name', responses: { '201': { description: 'Created' } } },
       },
       '/api/analyses': {
         get: {
