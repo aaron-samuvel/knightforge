@@ -19,8 +19,10 @@ const finishGameSchema = z.object({
     'abandoned',
     'agreement',
   ]),
-  pgn: z.string(),
-  moveCount: z.number().int().min(0).optional(),
+  pgn: z
+    .string()
+    .max(64 * 1024, 'PGN too large (max 64 KB)'),
+  moveCount: z.number().int().min(0).max(1000).optional(),
   timeControl: z
     .string()
     .regex(/^\d+\+\d+$/, 'timeControl must be in "5+0" format'),
