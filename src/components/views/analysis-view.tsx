@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import {
   Activity,
@@ -298,6 +298,43 @@ export function AnalysisView() {
     setCursor(ply + 1)
   }, [])
 
+  // Keyboard navigation: ← / → step through the line, Home / End jump to the
+  // start / end. Ignored while the focus is in a text field so pasting a PGN
+  // or FEN never moves the board.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      switch (e.key) {
+        case 'ArrowLeft':
+          setCursor((c) => Math.max(0, c - 1))
+          break
+        case 'ArrowRight':
+          setCursor((c) => Math.min(lineMoves.length, c + 1))
+          break
+        case 'Home':
+          setCursor(0)
+          break
+        case 'End':
+          setCursor(lineMoves.length)
+          break
+        default:
+          return
+      }
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lineMoves.length])
+
   const handleAnalyze = useCallback(async () => {
     if (thinking) return
     setThinking(true)
@@ -469,6 +506,9 @@ export function AnalysisView() {
               <ArrowLeftRight className="h-4 w-4" />
               <span className="ml-1 hidden sm:inline">Flip</span>
             </Button>
+            <span className="hidden text-xs text-muted-foreground md:inline" title="Keyboard: left / right arrows step moves, Home / End jump to start / end">
+              ← → step moves · Home / End jump
+            </span>
           </div>
 
           <ScrollArea className="max-h-64 rounded-md border">
