@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 /**
  * GET /api/analyses — library of persisted Pro Reviews, newest first.
@@ -8,6 +9,15 @@ import { db } from '@/lib/db'
  */
 export async function GET(req: NextRequest) {
   try {
+    // Public, unauthenticated DB read — throttle casual scraping.
+    const rl = rateLimitIp(req, 'analyses-list', { limit: 60, windowMs: 60_000 })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many requests. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      )
+    }
+
     const url = new URL(req.url)
     const offset = Math.max(0, Number.parseInt(url.searchParams.get('offset') ?? '0', 10) || 0)
     const limitRaw = Number.parseInt(url.searchParams.get('limit') ?? '20', 10) || 20

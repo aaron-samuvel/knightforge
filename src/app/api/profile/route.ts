@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireUser, toSessionUser } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 // Uploaded avatar: small data URL only (client resizes to ≤256px JPEG/WebP).
 // Hard cap ~150KB of base64 to keep profile payloads and the DB lean.
@@ -62,6 +63,16 @@ export async function PATCH(req: NextRequest) {
     const sessionUser = await requireUser()
     if (!sessionUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Profile PATCHes carry up to ~150KB avatar payloads — keep write
+    // frequency sane (covers accidental double-clicks and scripted abuse).
+    const rl = rateLimitIp(req, 'profile-patch', { limit: 30, windowMs: 5 * 60_000 })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Too many profile updates. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      )
     }
 
     const body = await req.json().catch(() => null)

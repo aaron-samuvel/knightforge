@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { rateLimitIp } from '@/lib/rate-limit'
 
 /**
  * Game import proxy — fetches recent public games for a username.
@@ -246,6 +247,16 @@ export async function GET(req: NextRequest) {
   }
   const { source, username } = parsed.data
   const key = `${source}:${username.toLowerCase()}`
+
+  // Each cache miss fans out to the upstream provider (Lichess/Chess.com);
+  // cap per-client fetches so our egress IP stays in good standing.
+  const rl = rateLimitIp(req, 'import-games', { limit: 10, windowMs: 60_000 })
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: 'Too many import requests — wait a moment and try again.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+    )
+  }
 
   const cached = cache.get(key)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
